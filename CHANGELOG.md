@@ -38,3 +38,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fixed a data race on the escort list and a crash when looking up the closest escort without a publisher
 - fixed escorts reconnecting with a different stream ID than they first connected with
 - fixed every new HLS muxer starting its cleanup goroutine twice
+- fixed SRT packets being dropped when gosrt delivers a burst faster than the haven reads it, the SRT reader now waits instead of dropping
+- fixed the flagship disconnecting an escort when its SRT write queue is momentarily full

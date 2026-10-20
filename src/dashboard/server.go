@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	defaultPort = 80
+	defaultPort = 8080
 
 	RoleFlagship = "flagship"
 	RoleEscort   = "escort"
