@@ -110,6 +110,7 @@ _(Full command-line documentation coming soon)_
 - [x] Better circular buffering
 - [x] MPEG-TS Demuxing
 - [x] RTSP Muxing
+- [ ] Add UPnP for easier usability by normal users
 - [ ] Allow only a certain amount of viewers per node
 - [ ] Syncing between SRT-Servers and RTSP clients
 - [ ] Pirate Mode - allows server to only broadcast the RTSP signal on LAN
