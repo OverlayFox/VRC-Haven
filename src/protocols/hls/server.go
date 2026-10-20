@@ -195,9 +195,12 @@ func (s *Server) tryRedirectToEscort(w http.ResponseWriter, r *http.Request) boo
 		return false // no escort, continue locally
 	}
 
-	target := *r.URL
-	target.Scheme = "http"
-	target.Host = escort.GetAddr().String()
+	target := url.URL{
+		Scheme:   "http",
+		Host:     escort.GetAddr().String(),
+		Path:     r.URL.Path,
+		RawQuery: r.URL.RawQuery,
+	}
 
 	if strings.HasSuffix(r.URL.Path, "index.m3u8") {
 		s.serveManifestRedirect(w, r, &target)
@@ -205,7 +208,7 @@ func (s *Server) tryRedirectToEscort(w http.ResponseWriter, r *http.Request) boo
 	}
 
 	s.logger.Info().Str("client_ip", r.RemoteAddr).Str("redirect_uri", target.String()).Msg("Redirecting stray HLS request")
-	http.Redirect(w, r, target.String(), http.StatusMovedPermanently)
+	http.Redirect(w, r, target.String(), http.StatusMovedPermanently) // #nosec G710 -- host is the escort's address, not user input
 	return true
 }
 

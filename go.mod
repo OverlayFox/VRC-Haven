@@ -15,9 +15,8 @@ require (
 	github.com/yapingcat/gomedia v0.0.0-20240906162731-17feea57090c
 )
 
-require github.com/asticode/go-astikit v0.57.0 // indirect
-
 require (
+	github.com/asticode/go-astikit v0.57.0 // indirect
 	github.com/benburkert/openpgp v0.0.0-20160410205803-c2471f86866c // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/google/uuid v1.6.0 // indirect
