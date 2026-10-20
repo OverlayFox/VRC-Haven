@@ -71,6 +71,10 @@ type ConnectionSRT interface {
 	Connection
 	WritePacket(pkt packet.Packet) error
 	Read() chan packet.Packet
+
+	// GetAdvertisedAddr returns the host:port an escort serves HLS on, empty for other connection types.
+	GetAdvertisedAddr() string
+	GetStats() SRTStats
 }
 
 type ConnectionRTSP interface {

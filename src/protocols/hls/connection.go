@@ -42,7 +42,7 @@ type Connection struct {
 	cancel context.CancelFunc
 }
 
-func NewConnection(upstreamCtx context.Context, logger zerolog.Logger, location types.Location) types.ConnectionRTSP {
+func NewConnection(upstreamCtx context.Context, logger zerolog.Logger, location types.Location) *Connection {
 	ctx, cancel := context.WithCancel(upstreamCtx)
 	return &Connection{
 		logger:        logger,

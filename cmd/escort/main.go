@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
 
+	"github.com/OverlayFox/VRC-Haven/src/dashboard"
 	"github.com/OverlayFox/VRC-Haven/src/haven"
 	"github.com/OverlayFox/VRC-Haven/src/logging"
 	"github.com/OverlayFox/VRC-Haven/src/protocols/hls"
@@ -82,7 +84,28 @@ func main() {
 		return
 	}
 
-	err = srtServer.Dial("127.0.0.1:8890", "escort:ingest", "thisisaverysecurepassphrase")
+	dashboardConf, err := dashboard.ConfigFromEnv(dashboard.RoleEscort)
+	if err != nil {
+		logger.Panic().Err(err).Msg("Invalid dashboard configuration")
+		return
+	}
+	dashboardServer, err := dashboard.New(logger, dashboardConf,
+		dashboard.NewSection("ingest", haven.PublisherStats),
+		dashboard.NewSection("hls", hlsServer.Stats),
+	)
+	if err != nil {
+		logger.Panic().Err(err).Msg("Failed to create dashboard server")
+		return
+	}
+	dashboardServer.Start()
+
+	// The flagship redirects viewers to this address, a bare ":port" makes it use the IP this escort connects from
+	hlsPublicAddr := os.Getenv("HLS_PUBLIC_ADDR")
+	if hlsPublicAddr == "" {
+		hlsPublicAddr = fmt.Sprintf(":%d", hlsConf.Port)
+	}
+
+	err = srtServer.Dial("127.0.0.1:8890", srt.EscortStreamID(haven.GetStreamID(), hlsPublicAddr), "thisisaverysecurepassphrase")
 	if err != nil {
 		logger.Panic().Err(err).Msg("Failed to dial SRT server")
 		return

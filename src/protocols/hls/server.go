@@ -28,15 +28,19 @@ type Server struct {
 
 	isFlagship bool
 
-	connection types.ConnectionRTSP
+	connection *Connection
 	connMtx    sync.Mutex
+
+	// redirects counts playlist requests sent to each escort, keyed by the escort's HLS address
+	redirects   map[string]uint64
+	redirectMtx sync.Mutex
 
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
-func New(upstreamCtx context.Context, logger zerolog.Logger, config Config, haven types.Haven, locator types.Locator) (types.ProtocolServer, error) {
+func New(upstreamCtx context.Context, logger zerolog.Logger, config Config, haven types.Haven, locator types.Locator) (*Server, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -49,6 +53,8 @@ func New(upstreamCtx context.Context, logger zerolog.Logger, config Config, have
 		haven:      haven,
 		locator:    locator,
 		isFlagship: config.IsFlagship,
+
+		redirects: make(map[string]uint64),
 
 		ctx:    ctx,
 		cancel: cancel,
@@ -248,15 +254,6 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			s.connMtx.Unlock()
 		})
-		s.connection = conn
-		s.wg.Go(func() {
-			<-conn.GetCtx().Done()
-			s.connMtx.Lock()
-			if s.connection == conn {
-				s.connection = nil
-			}
-			s.connMtx.Unlock()
-		})
 	}
 	conn := s.connection
 	s.connMtx.Unlock()
@@ -279,13 +276,13 @@ func (s *Server) tryRedirectToEscort(w http.ResponseWriter, r *http.Request) boo
 	}
 
 	escort := s.haven.GetClosestEscort(location)
-	if escort == nil {
+	if escort == nil || escort.GetAdvertisedAddr() == "" {
 		return false // no escort, continue locally
 	}
 
 	target := url.URL{
 		Scheme:   "http",
-		Host:     escort.GetAddr().String(),
+		Host:     escort.GetAdvertisedAddr(),
 		Path:     r.URL.Path,
 		RawQuery: r.URL.RawQuery,
 	}
@@ -319,6 +316,10 @@ func (s *Server) serveManifestRedirect(w http.ResponseWriter, r *http.Request, t
 		logClient(s.logger.Error(), r).Err(err).Msg("Failed to write escort redirect manifest")
 		return
 	}
+
+	s.redirectMtx.Lock()
+	s.redirects[target.Host]++
+	s.redirectMtx.Unlock()
 	logClient(s.logger.Info(), r).Str("escort", target.Host).Msg("Redirected HLS playlist to escort")
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
 
+	"github.com/OverlayFox/VRC-Haven/src/dashboard"
 	"github.com/OverlayFox/VRC-Haven/src/geo"
 	"github.com/OverlayFox/VRC-Haven/src/haven"
 	"github.com/OverlayFox/VRC-Haven/src/logging"
@@ -94,6 +95,23 @@ func main() {
 		return
 	}
 	srtServer.Start()
+
+	dashboardConf, err := dashboard.ConfigFromEnv(dashboard.RoleFlagship)
+	if err != nil {
+		logger.Panic().Err(err).Msg("Invalid dashboard configuration")
+		return
+	}
+	dashboardServer, err := dashboard.New(logger, dashboardConf,
+		dashboard.NewSection("ingest", haven.PublisherStats),
+		dashboard.NewSection("escorts", haven.EscortStats),
+		dashboard.NewSection("redirects", hlsServer.RedirectStats),
+		dashboard.NewSection("hls", hlsServer.Stats),
+	)
+	if err != nil {
+		logger.Panic().Err(err).Msg("Failed to create dashboard server")
+		return
+	}
+	dashboardServer.Start()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
