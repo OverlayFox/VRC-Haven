@@ -7,7 +7,7 @@ import (
 
 	goSrt "github.com/datarhei/gosrt"
 
-	"github.com/OverlayFox/VRC-Stream-Haven/src/types"
+	"github.com/OverlayFox/VRC-Haven/src/types"
 )
 
 type streamRequest struct {

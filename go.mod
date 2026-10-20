@@ -1,4 +1,4 @@
-module github.com/OverlayFox/VRC-Stream-Haven
+module github.com/OverlayFox/VRC-Haven
 
 go 1.27.0
 

@@ -11,13 +11,18 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/yapingcat/gomedia/go-codec"
 
-	"github.com/OverlayFox/VRC-Stream-Haven/src/types"
+	"github.com/OverlayFox/VRC-Haven/src/types"
 )
 
 const (
 	MinKeyFrames = 3
 	WaitForIDR   = 8 * time.Second
-	BufCap       = 500
+
+	BufCap = 500 // at 50fps, 10sec of data
+
+	EgressChCap = 250 // egress from ring buffer to subscriber goroutine (history burst + live)
+	LiveChCap   = 55
+	OutChCap    = 250
 )
 
 type subBuffer struct {
@@ -211,7 +216,7 @@ func (b *subBuffer) subscribe(upstreamCtx context.Context, startPos int, _ time.
 	}
 	firstFramePTS := first.Header().Pts
 
-	outCh := make(chan types.Frame, b.cap)
+	outCh := make(chan types.Frame, OutChCap)
 	b.wg.Go(func() {
 		defer CloseAndDrain(outCh)
 
@@ -227,15 +232,23 @@ func (b *subBuffer) subscribe(upstreamCtx context.Context, startPos int, _ time.
 		dropLogger := newDropLogger(b.logger)
 		var dropped uint64
 
+		drainPreBuf := func() {
+			for _, f := range preBuf {
+				f.Decommission()
+			}
+		}
 		for (lastPTS - firstFramePTS).Abs() < preDur {
 			select {
 			case <-b.ctx.Done():
+				drainPreBuf()
 				return
 			case <-upstreamCtx.Done():
+				drainPreBuf()
 				return
 			case frame, ok := <-ch:
 				if !ok {
-					break
+					drainPreBuf()
+					return
 				}
 				preBuf = append(preBuf, frame)
 				lastPTS = frame.Header().Pts

@@ -10,10 +10,10 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
 
-	"github.com/OverlayFox/VRC-Stream-Haven/src/haven"
-	"github.com/OverlayFox/VRC-Stream-Haven/src/logging"
-	"github.com/OverlayFox/VRC-Stream-Haven/src/protocols/hls"
-	"github.com/OverlayFox/VRC-Stream-Haven/src/protocols/srt"
+	"github.com/OverlayFox/VRC-Haven/src/haven"
+	"github.com/OverlayFox/VRC-Haven/src/logging"
+	"github.com/OverlayFox/VRC-Haven/src/protocols/hls"
+	"github.com/OverlayFox/VRC-Haven/src/protocols/srt"
 )
 
 var logger zerolog.Logger

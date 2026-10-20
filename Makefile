@@ -16,10 +16,12 @@ build:
 	go build -v ./...
 
 .PHONY: test
+.PHONY: test
 test:
 	@echo "==> Running tests with race detector..."
 	go test -race -v ./...
 
+.PHONY: lint
 .PHONY: lint
 lint:
 	$(GOLANGCI_LINT) run

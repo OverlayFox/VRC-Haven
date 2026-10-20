@@ -14,8 +14,8 @@ import (
 	"github.com/datarhei/gosrt/packet"
 	"github.com/rs/zerolog"
 
-	"github.com/OverlayFox/VRC-Stream-Haven/src/multiplexer"
-	"github.com/OverlayFox/VRC-Stream-Haven/src/types"
+	"github.com/OverlayFox/VRC-Haven/src/multiplexer"
+	"github.com/OverlayFox/VRC-Haven/src/types"
 )
 
 type connection struct {
@@ -185,7 +185,7 @@ func (c *connection) close() {
 }
 
 func (c *connection) read() (chan packet.Packet, chan error) {
-	pktCh := make(chan packet.Packet, 6000)
+	pktCh := make(chan packet.Packet, 200)
 	errCh := make(chan error, 1)
 
 	c.wg.Go(func() {

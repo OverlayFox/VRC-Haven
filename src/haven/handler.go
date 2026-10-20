@@ -10,9 +10,9 @@ import (
 	"github.com/datarhei/gosrt/packet"
 	"github.com/rs/zerolog"
 
-	"github.com/OverlayFox/VRC-Stream-Haven/src/buffer"
-	"github.com/OverlayFox/VRC-Stream-Haven/src/multiplexer"
-	"github.com/OverlayFox/VRC-Stream-Haven/src/types"
+	"github.com/OverlayFox/VRC-Haven/src/buffer"
+	"github.com/OverlayFox/VRC-Haven/src/multiplexer"
+	"github.com/OverlayFox/VRC-Haven/src/types"
 )
 
 // demuxerInputCap is how many SRT packets may queue for the demuxer.

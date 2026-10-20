@@ -17,7 +17,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/yapingcat/gomedia/go-codec"
 
-	"github.com/OverlayFox/VRC-Stream-Haven/src/types"
+	"github.com/OverlayFox/VRC-Haven/src/types"
 )
 
 const playlistWaitTimeout = 7 * time.Second
@@ -302,6 +302,9 @@ func (c *Connection) extractMetadata(videoCh, audioCh *chan types.Frame) (sps, p
 					}
 				}
 				*audioCh <- frame
+
+			case <-c.ctx.Done():
+				return
 			}
 		}
 	})

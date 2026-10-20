@@ -7,11 +7,14 @@ import (
 
 	"github.com/yapingcat/gomedia/go-codec"
 
-	"github.com/OverlayFox/VRC-Stream-Haven/src/types"
+	"github.com/OverlayFox/VRC-Haven/src/types"
 )
 
 const (
-	MaxPayloadSize = 256 * 1024
+	// MaxPayloadSize is the initial pool buffer capacity. 64KB covers essentially all
+	// P/B frames and audio at normal bitrates; IDR frames that exceed it are still
+	// returned to the pool so they can be reused without re-growing on the next IDR.
+	MaxPayloadSize = 64 * 1024
 )
 
 var ErrEmptyPayload = errors.New("payload is empty")
@@ -40,11 +43,11 @@ func (p *bufPool) Get() *bytes.Buffer {
 	if !ok {
 		return bytes.NewBuffer(make([]byte, 0, MaxPayloadSize))
 	}
-	b.Reset()
 	return b
 }
 
 func (p *bufPool) Put(b *bytes.Buffer) {
+	b.Reset()
 	p.pool.Put(b)
 }
 

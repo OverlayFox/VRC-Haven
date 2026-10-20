@@ -1,74 +1,105 @@
-# VRC-Stream-Haven
+<p align="center">
+  <img src="./assets/gophor_caspar.png" width="250" alt="VRC Haven Logo">
+</p>
 
-> A self-hosted CDN for VRChat streaming with intelligent geographic distribution
+<h1 align="center">VRC-Haven</h1>
 
-VRC-Stream-Haven is a distributed content delivery network designed for publishing RTSP signals to the web. <br>
-It enables multiple servers to work together as a "Haven," automatically routing viewers to the geographically closest server for optimal stream stability and reduced latency.
+<p align="center">
+  <b>A CDN video streaming system build for easy deployment.</b>
+</p>
 
-⚠️ **Early Development Notice**: This project is currently in pre-alpha stage. Expect bugs and missing features.
+<p align="center">
+  <a href="https://goreportcard.com/report/github.com/OverlayFox/VRC-Haven"><img src="https://goreportcard.com/badge/github.com/OverlayFox/VRC-Haven" alt="Go Report Card"></a>
+  <a href="https://github.com/OverlayFox/VRC-Haven/actions/workflows/go.yml"><img src="https://github.com/OverlayFox/VRC-Haven/actions/workflows/go.yml/badge.svg" alt="Build Status"></a>
+</p>
 
-## Features
+## 1. Table of Contents
 
-- **Distributed CDN Architecture**: Multiple servers work together to serve streams efficiently
+- [1. Table of Contents](#1-table-of-contents)
+- [2. Introduction](#2-introduction)
+- [3. Features](#3-features)
+- [4. Architecture](#4-architecture)
+- [5. Prerequisites](#5-prerequisites)
+- [6. Installation](#6-installation)
+  - [6.1. MaxMind Database Setup](#61-maxmind-database-setup)
+  - [Logging](#logging)
+- [Usage](#usage)
+  - [7.1. Running as Flagship](#71-running-as-flagship)
+  - [7.2. Running as Escort](#72-running-as-escort)
+- [8. Roadmap](#8-roadmap)
+- [9. Contributing](#9-contributing)
+- [10. License](#10-license)
+- [11. Acknowledgments](#11-acknowledgments)
+
+## 2. Introduction
+
+VRC-Haven is a distributed content delivery network designed for publishing HLS signals to the web. <br>
+It enables multiple users to work together as a "Haven", automatically routing viewers to the geographically closest user for optimal stream stability and reduced latency.
+
+> ⚠️ **Early Development Notice**: This project is currently in pre-alpha stage. Expect bugs and missing features.
+
+## 3. Features
+
+- **Distributed CDN Architecture**: Multiple users work together to serve streams efficiently
 - **Intelligent Geographic Routing**: Automatically routes viewers to the nearest available server
-- **SRT to RTSP Conversion**: Receives SRT feeds and remuxes to RTSP for web delivery
-- **Lightweight & Efficient**: Minimal resource footprint using native Go libraries without external dependencies
+- **SRT to HLS Conversion**: Receives SRT feeds and remuxes to HLS for web delivery
+- **Lightweight & Efficient**: Minimal resource footprint using native Go libraries with minimal external software dependencies\*
 - **Self-Hosted**: Full control over your streaming infrastructure
 
-## Architecture
+> \*:This system relies on MaxMinds GeoIP database which is free to download from MaxMinds website. See [6. Installation](#6-installation) for more information.
 
-VRC-Stream-Haven uses a hub-and-spoke model with two types of servers:
+## 4. Architecture
 
-### Flagship (Main Server)
+VRC-Haven uses a hub-and-spoke model with two types of servers:
 
-- Receives the primary SRT feed from the broadcaster
-- Manages the Haven network of Escort servers
-- Routes viewers to the optimal Escort based on geographic proximity
-- Serves as fallback when no Escorts are available
+**Haven Overview:**
 
-### Escort (Edge Server)
+```mermaid
+architecture-beta
+    group flagship(server)[Flagship Sweden]
+    group escort1(server)[Escort Australia]
+    group escort2(server)[Escort Ukraine]
 
-- Pulls the SRT feed from the Flagship
-- Remuxes to RTSP for local viewers
-- Registers with the Flagship via API using a shared passphrase
-- Reduces load on the Flagship and improves viewer experience
+    service fingest(server)[SRT Ingest] in flagship
+    service fegress(server)[HLS Egress] in flagship
+    fingest:R --> L:fegress
 
-**Flow Diagram:**
+    service e1ingest(server)[SRT Ingest] in escort1
+    service e1egress(server)[HLS Egress] in escort1
+    e1ingest:R --> L:e1egress
+    fingest:T --> B:e1ingest
 
+    service e2ingest(server)[SRT Ingest] in escort2
+    service e2egress(server)[HLS Egress] in escort2
+    e2ingest:R --> L:e2egress
+    fingest:B --> T:e2ingest
+
+    service vrc(internet)[VR Chat]
+    service publisher(server)[Publisher for example OBS]
+
+    publisher:R --> L:fingest
+    fegress:R --> L:vrc
+    e1egress:B --> T:vrc
+    e2egress:T --> B:vrc
 ```
-Broadcaster (SRT) → Flagship → Escort 1 → Viewers (nearby)
-                            → Escort 2 → Viewers (nearby)
-                            → Escort n → Viewers (nearby)
-                            → Viewers (direct fallback)
-```
 
-## Prerequisites
+The Escorts will pull the SRT feed from the Flagship and convert them each to HLS. <br>
+The flagship will then redirect the clients from inside VRC to the closest escort available or itself.
 
-- Go 1.26 or higher
+## 5. Prerequisites
+
+- Windows or Linux PC
 - Network infrastructure capable of SRT/RTSP streaming
-- (Optional but recommended) IP2Location LITE database for geolocation
+- Router access to forward TCP/UDP Ports
+- A Free MaxMind account
 
-## Installation
+## 6. Installation
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/VRC-Stream-Haven.git
-cd VRC-Stream-Haven
+### 6.1. MaxMind Database Setup
 
-# Build the project
-make build
+VRC-Haven uses the `MaxMind GeoLite2-City Databse`for IP geolocation to calculate distances between servers and viewers.
 
-# Or build manually
-go build -o vrc-stream-haven
-```
-
-## Configuration
-
-### IP2Location Database Setup (Recommended)
-
-VRC-Stream-Haven uses the [IP2Location LITE database](https://lite.ip2location.com) for IP geolocation to calculate distances between servers and viewers.
-
-> **Privacy Note**: Escort locations are stored in RAM and logs, but viewer locations are only calculated temporarily and not persisted.
+This step is mandatory to use this application and is completely free.
 
 **Setup Steps:**
 
@@ -104,50 +135,45 @@ jq 'select(.viewer_id == "1a2b3c4d")' haven.log   # the same with LOG_FORMAT=jso
 
 ## Usage
 
-### Running as Flagship
+### 7.1. Running as Flagship
 
 ```bash
-./vrc-stream-haven flagship [options]
+./VRC-Haven flagship [options]
 ```
 
-### Running as Escort
+### 7.2. Running as Escort
 
 ```bash
-./vrc-stream-haven escort --flagship-url=<url> --passphrase=<secret> [options]
+./VRC-Haven escort --flagship-url=<url> --passphrase=<secret> [options]
 ```
 
 _(Full command-line documentation coming soon)_
 
-## Roadmap
+## 8. Roadmap
 
 - [x] Proof of Concept
 - [x] Code refactoring for improved readability and maintainability
 - [x] Better circular buffering
 - [x] MPEG-TS Demuxing
 - [x] RTSP Muxing
+- [x] Move from RTSP to HLS due to VRC not implementing RTSP return codes
 - [ ] Add UPnP for easier usability by normal users
 - [ ] Allow only a certain amount of viewers per node
-- [ ] Syncing between SRT-Servers and RTSP clients
-- [ ] Pirate Mode - allows server to only broadcast the RTSP signal on LAN
+- [ ] Syncing between SRT-Servers and HLS clients
+- [ ] Pirate Mode - allows server to only broadcast the HLS signal on LAN
 - [ ] SRT chaining - allows nodes to pull SRT streams from other nodes
 - [ ] Web interface for monitoring
 - [ ] When a escort disconnects the readers shouldn't be dropped but redirected to a different escort
 
-## Contributing
+## 9. Contributing
 
-Contributions are welcome! This project is in early development and could benefit from:
-
-- Bug reports and feature requests
-- Code contributions and refactoring
-- Documentation improvements
-- Testing and feedback
-
+Contributions are welcome! <br>
 Please feel free to open issues or submit pull requests.
 
-## License
+## 10. License
 
 This project is licensed under the terms specified in the [LICENSE](LICENSE) file.
 
-## Acknowledgments
+## 11. Acknowledgments
 
 - [MaxMind](https://www.maxmind.com) for providing the geolocation database

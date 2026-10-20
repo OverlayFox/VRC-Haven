@@ -7,7 +7,7 @@ import (
 	"github.com/bluenviron/mediacommon/v2/pkg/codecs/mpeg4audio"
 	"github.com/yapingcat/gomedia/go-codec"
 
-	"github.com/OverlayFox/VRC-Stream-Haven/src/types"
+	"github.com/OverlayFox/VRC-Haven/src/types"
 )
 
 var ErrSPSPPSNotFound = errors.New("SPS/PPS not found in video frame")

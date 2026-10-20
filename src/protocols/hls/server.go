@@ -14,7 +14,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/OverlayFox/VRC-Stream-Haven/src/types"
+	"github.com/OverlayFox/VRC-Haven/src/types"
 )
 
 type Server struct {
@@ -239,6 +239,15 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to initialize stream", http.StatusInternalServerError)
 			return
 		}
+		s.connection = conn
+		s.wg.Go(func() {
+			<-conn.GetCtx().Done()
+			s.connMtx.Lock()
+			if s.connection == conn {
+				s.connection = nil
+			}
+			s.connMtx.Unlock()
+		})
 		s.connection = conn
 		s.wg.Go(func() {
 			<-conn.GetCtx().Done()

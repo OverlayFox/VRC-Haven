@@ -7,7 +7,7 @@
   },
   "gopls": {
     "formatting.gofumpt": true,
-    "formatting.local": "github.com/OverlayFox/VRC-Stream-Haven"
+    "formatting.local": "github.com/OverlayFox/VRC-Haven"
   },
   "go.coverageDecorator": {
     "type": "gutter",

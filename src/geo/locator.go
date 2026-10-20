@@ -19,7 +19,7 @@ import (
 	"github.com/oschwald/geoip2-golang"
 	"github.com/rs/zerolog"
 
-	"github.com/OverlayFox/VRC-Stream-Haven/src/types"
+	"github.com/OverlayFox/VRC-Haven/src/types"
 )
 
 const (
