@@ -44,6 +44,7 @@ func loadEnv() {
 }
 
 func main() {
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	logger.Info().Msg("Starting in Flagship mode")
 	loadEnv()
 

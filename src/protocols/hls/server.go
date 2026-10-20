@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -56,8 +57,6 @@ func New(upstreamCtx context.Context, logger zerolog.Logger, config Config, have
 		Addr:        fmt.Sprintf("%s:%d", config.Address, config.Port),
 		Handler:     s,
 		ReadTimeout: 10 * time.Second,
-		// Players poll every target duration, keeping their connections open avoids a
-		// fresh TCP handshake and slow start per request for distant viewers.
 		IdleTimeout: 60 * time.Second,
 	}
 
@@ -106,7 +105,87 @@ func (s *Server) validate(path string) (int, error) {
 	return http.StatusOK, nil
 }
 
+// slowSegmentTransfer is the download time above which a segment takes about as long to fetch as it lasts, which drains the player's buffer.
+const slowSegmentTransfer = segmentMinDuration
+
+// responseRecorder captures what was sent to a client, for request logging.
+type responseRecorder struct {
+	http.ResponseWriter
+
+	status   int
+	bytes    int
+	writeErr error
+}
+
+func (r *responseRecorder) WriteHeader(status int) {
+	if r.status == 0 {
+		r.status = status
+	}
+	r.ResponseWriter.WriteHeader(status)
+}
+
+func (r *responseRecorder) Write(b []byte) (int, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	n, err := r.ResponseWriter.Write(b)
+	r.bytes += n
+	if err != nil && r.writeErr == nil {
+		r.writeErr = err
+	}
+	return n, err
+}
+
+func (r *responseRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	rec := &responseRecorder{ResponseWriter: w}
+	start := time.Now()
+	defer func() { s.logRequest(rec, r, time.Since(start)) }()
+
+	s.serveHTTP(rec, r)
+}
+
+// logRequest logs a finished request. Only the file name is logged, since the path before it carries the stream's passphrase.
+func (s *Server) logRequest(rec *responseRecorder, r *http.Request, duration time.Duration) {
+	file := ""
+	if parts := strings.SplitN(r.URL.Path, "/", 4); len(parts) == 4 {
+		file = parts[3]
+	}
+
+	event := s.logger.Trace()
+	msg := "HLS request"
+	if rec.status == http.StatusOK || rec.status == http.StatusPartialContent {
+		contentLength, _ := strconv.Atoi(rec.Header().Get("Content-Length"))
+		switch {
+		case rec.writeErr != nil || (r.Method != http.MethodHead && rec.bytes < contentLength):
+			event = s.logger.Warn()
+			msg = "HLS response cut short, the client disconnected mid-transfer"
+		case strings.HasSuffix(file, ".ts") && duration > slowSegmentTransfer:
+			event = s.logger.Warn()
+			msg = "Slow HLS segment transfer, the client may not keep up with live"
+		}
+	}
+
+	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+		event = event.Str("range", rangeHeader)
+	}
+	if rec.writeErr != nil {
+		event = event.AnErr("write_error", rec.writeErr)
+	}
+	event.Str("client_ip", r.RemoteAddr).
+		Str("method", r.Method).
+		Str("file", file).
+		Int("status", rec.status).
+		Int("bytes", rec.bytes).
+		Dur("duration", duration).
+		Str("user_agent", r.UserAgent()).
+		Msg(msg)
+}
+
+func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	// 1. Dynamic Origin Echoing (Fixes the wildcard redirect trap)
 	origin := r.Header.Get("Origin")
 	if origin != "" {
@@ -152,7 +231,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	s.connMtx.Lock()
 	if s.connection == nil {
-		s.logger.Info().Str("client_ip", r.RemoteAddr).Msg("First LL-HLS viewer connected, priming stream muxer...")
+		s.logger.Info().Str("client_ip", r.RemoteAddr).Msg("First HLS viewer connected, priming stream muxer...")
 		conn := NewConnection(s.ctx, s.logger, location)
 		if err := s.haven.AddConnection(conn); err != nil {
 			s.connMtx.Unlock()
@@ -207,7 +286,7 @@ func (s *Server) tryRedirectToEscort(w http.ResponseWriter, r *http.Request) boo
 		return true
 	}
 
-	s.logger.Info().Str("client_ip", r.RemoteAddr).Str("redirect_uri", target.String()).Msg("Redirecting stray HLS request")
+	s.logger.Info().Str("client_ip", r.RemoteAddr).Str("redirect_uri", target.String()).Msg("Redirecting HLS request")
 	http.Redirect(w, r, target.String(), http.StatusMovedPermanently) // #nosec G710 -- host is the escort's address, not user input
 	return true
 }
@@ -230,7 +309,7 @@ func (s *Server) serveManifestRedirect(w http.ResponseWriter, r *http.Request, t
 		s.logger.Error().Err(err).Str("client_ip", r.RemoteAddr).Msg("Failed to write manifest response")
 		return
 	}
-	s.logger.Info().Str("client_ip", r.RemoteAddr).Str("target", targetURL).Msg("Served absolute manifest redirect")
+	s.logger.Debug().Str("client_ip", r.RemoteAddr).Str("target", targetURL).Msg("Served absolute manifest redirect")
 }
 
 func isValidURL(urlStr string) bool {

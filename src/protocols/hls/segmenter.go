@@ -2,7 +2,6 @@ package hls
 
 import (
 	"bytes"
-	"fmt"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -11,21 +10,59 @@ import (
 )
 
 const (
-	// Segments are cut at the first keyframe after segmentMinDuration, so an encoder
-	// keyframe interval of 1s yields 1s segments (lowest latency), longer GOPs yield
-	// GOP-length segments.
-	segmentMinDuration = 1 * time.Second
-	// Keyframe timestamps jitter slightly; without slack a 0.99s GOP would be skipped
-	// and every other segment would end up 2s long.
-	segmentCutTolerance = 100 * time.Millisecond
-	// longSegmentWarning is the segment duration above which latency suffers noticeably.
-	longSegmentWarning = 3 * time.Second
+	segmentMinDuration   = 1 * time.Second
+	segmentCutTolerance  = 100 * time.Millisecond
+	longSegmentWarning   = 3 * time.Second
+	timestampJumpWarning = 1 * time.Second
+	avOffsetWarning      = 500 * time.Millisecond
 )
 
+// streamHealth records when media last flowed into the segmenter, so a stalled playlist can be traced back to the publisher, missing keyframes or the muxer.
+type streamHealth struct {
+	lastVideoAt    time.Time
+	lastAudioAt    time.Time
+	lastKeyFrameAt time.Time
+	lastSegmentAt  time.Time
+	lastVideoPTS   time.Duration
+	videoFrames    uint64
+	audioFrames    uint64
+	segments       uint64
+}
+
+// segmentStats describes the segment currently being written.
+type segmentStats struct {
+	videoFrames   int
+	audioFrames   int
+	firstVideoPTS time.Duration
+	firstAudioPTS time.Duration
+}
+
+// timestampTracker warns about timestamps that go backwards or jump, both of which make players wait for media that never arrives.
+type timestampTracker struct {
+	stream string
+	last   time.Duration
+	seen   bool
+}
+
+func (t *timestampTracker) check(logger zerolog.Logger, ts time.Duration) {
+	if t.seen {
+		switch delta := ts - t.last; {
+		case delta <= 0:
+			logger.Warn().Str("stream", t.stream).Dur("previous", t.last).Dur("current", ts).Msg("Timestamps are not increasing")
+		case delta > timestampJumpWarning:
+			logger.Warn().Str("stream", t.stream).Dur("gap", delta).Dur("current", ts).Msg("Timestamps jumped forward")
+		}
+	}
+	t.last = ts
+	t.seen = true
+}
+
 type segmenter struct {
-	logger   zerolog.Logger
-	mux      *tsMuxer
-	playlist *livePlaylist
+	logger zerolog.Logger
+	// sampledLogger is for problems that can repeat on every frame
+	sampledLogger zerolog.Logger
+	mux           *tsMuxer
+	playlist      *livePlaylist
 
 	nextSeq uint64
 
@@ -35,31 +72,24 @@ type segmenter struct {
 	started      bool
 
 	warnedLongSegment bool
+
+	stats        segmentStats
+	health       streamHealth
+	videoDTS     timestampTracker
+	audioPTS     timestampTracker
+	droppedVideo int
+	droppedAudio int
 }
 
 func newSegmenter(logger zerolog.Logger, mux *tsMuxer, playlist *livePlaylist) *segmenter {
 	return &segmenter{
-		logger:   logger,
-		mux:      mux,
-		playlist: playlist,
-		// Seeding from the clock keeps EXT-X-MEDIA-SEQUENCE increasing across publisher
-		// reconnects (players break when it goes backwards) and keeps segment names unique,
-		// so no cache can serve a segment from a previous session. Unix seconds stay below
-		// 2^31 for players that parse the sequence as int32.
-		nextSeq: uint64(time.Now().Unix()), // #nosec G115 -- always positive
+		logger:        logger,
+		sampledLogger: logger.Sample(&zerolog.BurstSampler{Burst: 5, Period: 10 * time.Second}),
+		mux:           mux,
+		playlist:      playlist,
+		videoDTS:      timestampTracker{stream: "video"},
+		audioPTS:      timestampTracker{stream: "audio"},
 	}
-}
-
-func segmentFilename(seq uint64) string {
-	return fmt.Sprintf("segment_%d.ts", seq)
-}
-
-func parseSegmentSeq(filename string) (uint64, bool) {
-	var seq uint64
-	if n, err := fmt.Sscanf(filename, "segment_%d.ts", &seq); err != nil || n != 1 {
-		return 0, false
-	}
-	return seq, true
 }
 
 func (s *segmenter) ready() bool {
@@ -70,8 +100,20 @@ func (s *segmenter) playlistSnapshot() []byte {
 	return s.playlist.snapshot()
 }
 
+func (s *segmenter) playlistInfo() (playlistInfo, bool) {
+	return s.playlist.info()
+}
+
+func (s *segmenter) streamHealth() streamHealth {
+	return s.health
+}
+
+func (s *segmenter) parseSegmentFilename(filename string) (uint64, bool) {
+	return s.playlist.parseFilename(filename)
+}
+
 func (s *segmenter) segmentByFilename(filename string) ([]byte, bool) {
-	seq, ok := parseSegmentSeq(filename)
+	seq, ok := s.playlist.parseFilename(filename)
 	if !ok {
 		return nil, false
 	}
@@ -85,6 +127,7 @@ func (s *segmenter) startSegment(pts time.Duration) {
 	s.nextSeq++
 	s.segmentStart = pts
 	s.started = true
+	s.stats = segmentStats{}
 }
 
 func (s *segmenter) finishSegment(endPTS time.Duration) {
@@ -100,30 +143,87 @@ func (s *segmenter) finishSegment(endPTS time.Duration) {
 		duration: duration,
 		data:     s.current.Bytes(),
 	})
+	s.health.lastSegmentAt = time.Now()
+	s.health.segments++
+
+	event := s.logger.Trace()
+	if s.stats.audioFrames == 0 {
+		s.sampledLogger.Warn().Uint64("seq", s.currentSeq).Msg("Segment has no audio, players may stall waiting for it")
+	} else {
+		avOffset := s.stats.firstAudioPTS - s.stats.firstVideoPTS
+		if avOffset.Abs() > avOffsetWarning {
+			s.sampledLogger.Warn().Uint64("seq", s.currentSeq).Dur("av_offset", avOffset).
+				Msg("Audio and video timestamps are far apart, players may stall waiting for them to line up")
+		}
+		event = event.Dur("av_offset", avOffset)
+	}
+	event.Uint64("seq", s.currentSeq).
+		Dur("duration", duration).
+		Int("bytes", s.current.Len()).
+		Int("video_frames", s.stats.videoFrames).
+		Int("audio_frames", s.stats.audioFrames).
+		Dur("first_video_pts", s.stats.firstVideoPTS).
+		Msg("HLS segment finished")
 }
 
 func (s *segmenter) onVideoFrame(nalus [][]byte, frame types.Frame, ptsTicks, dtsTicks int64) error {
 	pts := frame.Header().Pts
+	dts := frame.Header().Dts
 	keyFrame := frame.IsKeyFrame()
+
+	if pts < dts {
+		s.sampledLogger.Warn().Dur("pts", pts).Dur("dts", dts).Msg("Video frame has PTS before DTS")
+	}
+	s.videoDTS.check(s.sampledLogger, dts)
+	now := time.Now()
+	s.health.lastVideoAt = now
+	s.health.lastVideoPTS = pts
+	s.health.videoFrames++
+	if keyFrame {
+		s.health.lastKeyFrameAt = now
+	}
 
 	if !s.started {
 		// Every segment must start with an IDR, many players cannot start decoding otherwise
 		if !keyFrame {
+			s.droppedVideo++
 			return nil
 		}
+		s.logger.Info().
+			Int("dropped_video_frames", s.droppedVideo).
+			Int("dropped_audio_frames", s.droppedAudio).
+			Dur("first_pts", pts).
+			Msg("First keyframe received, HLS segmenting started")
 		s.startSegment(pts)
 	} else if keyFrame && pts-s.segmentStart >= segmentMinDuration-segmentCutTolerance {
 		s.finishSegment(pts)
 		s.startSegment(pts)
 	}
 
+	if s.stats.videoFrames == 0 {
+		s.stats.firstVideoPTS = pts
+	}
+	s.stats.videoFrames++
+
 	return s.mux.writeVideoAccessUnit(nalus, ptsTicks, dtsTicks, keyFrame)
 }
 
-func (s *segmenter) onAudioFrame(adts []byte, ptsTicks int64) error {
+func (s *segmenter) onAudioFrame(adts []byte, frame types.Frame, ptsTicks int64) error {
+	pts := frame.Header().Pts
+	s.audioPTS.check(s.sampledLogger, pts)
+	s.health.lastAudioAt = time.Now()
+	s.health.audioFrames++
+
 	if !s.started {
 		// Audio arrived before the first video keyframe opened a segment drop it rather than buffer indefinitely
+		s.droppedAudio++
 		return nil
 	}
+
+	if s.stats.audioFrames == 0 {
+		s.stats.firstAudioPTS = pts
+	}
+	s.stats.audioFrames++
+
 	return s.mux.writeAudioAccessUnit(adts, ptsTicks)
 }

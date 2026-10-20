@@ -15,6 +15,9 @@ import (
 	"github.com/OverlayFox/VRC-Stream-Haven/src/types"
 )
 
+// demuxerInputCap is how many SRT packets may queue for the demuxer.
+const demuxerInputCap = 2048
+
 type Haven struct {
 	logger zerolog.Logger
 
@@ -331,8 +334,11 @@ func (h *Haven) demuxerToBufferWrite(demuxerEgress <-chan types.Frame, demuxerEr
 
 func (h *Haven) readFromPublisher() {
 	h.wg.Go(func() {
-		demuxerPktCh := make(chan packet.Packet, 100)
+		demuxerPktCh := make(chan packet.Packet, demuxerInputCap)
 		h.demuxerToBufferWrite(h.demuxer.StartDemuxer(demuxerPktCh))
+
+		droppedLogger := h.logger.Sample(&zerolog.BurstSampler{Burst: 1, Period: 5 * time.Second})
+		var droppedPackets uint64
 
 		publisherEgress := h.publisher.Read()
 		for {
@@ -349,6 +355,8 @@ func (h *Haven) readFromPublisher() {
 				case demuxerPktCh <- demuxerClone:
 				default:
 					demuxerClone.Decommission()
+					droppedPackets++
+					droppedLogger.Warn().Uint64("dropped_total", droppedPackets).Msg("Demuxer input full, dropping SRT packet")
 				}
 
 				broadcastToEscortsErrs := h.broadcastToEscorts(p)

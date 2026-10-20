@@ -20,15 +20,20 @@ import (
 	"github.com/OverlayFox/VRC-Stream-Haven/src/types"
 )
 
+const playlistWaitTimeout = 7 * time.Second
+
 type Connection struct {
-	logger zerolog.Logger
+	logger        zerolog.Logger
+	sampledLogger zerolog.Logger
 
 	location types.Location
 
-	seg *segmenter
-	// ready is closed once the playlist holds enough segments for players to start
+	seg       *segmenter
 	ready     chan struct{}
 	readyOnce sync.Once
+	createdAt time.Time
+
+	viewers *viewerTracker
 
 	wg     sync.WaitGroup
 	mtx    sync.RWMutex
@@ -41,11 +46,14 @@ func NewConnection(upstreamCtx context.Context, logger zerolog.Logger, location 
 	logger = logger.With().Str("protocol", "hls").Logger()
 	ctx, cancel := context.WithCancel(upstreamCtx)
 	return &Connection{
-		logger:   logger,
-		location: location,
-		ready:    make(chan struct{}),
-		ctx:      ctx,
-		cancel:   cancel,
+		logger:        logger,
+		sampledLogger: logger.Sample(&zerolog.BurstSampler{Burst: 5, Period: 10 * time.Second}),
+		location:      location,
+		ready:         make(chan struct{}),
+		createdAt:     time.Now(),
+		viewers:       newViewerTracker(logger),
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 }
 
@@ -53,13 +61,8 @@ func (c *Connection) GetStream() *gortsplib.ServerStream {
 	return nil
 }
 
-// playlistWaitTimeout bounds how long the first playlist request is held while the
-// stream primes. It stays below ExoPlayer's default 8s read timeout.
-const playlistWaitTimeout = 7 * time.Second
-
 // HandleHTTP serves the live playlist and its in-RAM MPEG-TS segments to HTTP clients.
-// Responses are written without holding the connection lock, so slow or distant
-// viewers never stall muxing.
+// Responses are written without holding the connection lock, so slow or distant viewers never stall muxing.
 func (c *Connection) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 	filename := path.Base(r.URL.Path)
 
@@ -70,25 +73,30 @@ func (c *Connection) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	c.mtx.RLock()
 	var data []byte
-	ok := false
+	var info playlistInfo
+	var seq uint64
+	ok, hasInfo, isSegment := false, false, false
 	if c.seg != nil {
 		data, ok = c.seg.segmentByFilename(filename)
+		info, hasInfo = c.seg.playlistInfo()
+		seq, isSegment = c.seg.parseSegmentFilename(filename)
 	}
 	c.mtx.RUnlock()
 
 	if !ok {
+		c.viewers.segmentNotFound(r)
+		c.logSegmentNotFound(r, filename, seq, isSegment, info, hasInfo)
 		http.NotFound(w, r)
 		return
 	}
+	c.viewers.segmentServed(r, seq)
 
 	w.Header().Set("Content-Type", "video/mp2t")
-	// Segment names are unique per stream session, so their content never changes
 	w.Header().Set("Cache-Control", "public, max-age=60")
 	serveBytes(w, r, data)
 }
 
-// servePlaylist holds the request until the stream is primed instead of failing it,
-// since many players give up on the first error.
+// servePlaylist holds the request until the stream is primed instead of failing it, since many players give up on the first error.
 func (c *Connection) servePlaylist(w http.ResponseWriter, r *http.Request) {
 	timer := time.NewTimer(playlistWaitTimeout)
 	defer timer.Stop()
@@ -96,11 +104,21 @@ func (c *Connection) servePlaylist(w http.ResponseWriter, r *http.Request) {
 	select {
 	case <-c.ready:
 	case <-r.Context().Done():
+		c.logger.Debug().Str("client_ip", r.RemoteAddr).Msg("Client gave up on playlist request while the stream was priming")
 		return
 	case <-c.ctx.Done():
+		c.logger.Info().Str("client_ip", r.RemoteAddr).Msg("Playlist requested after the stream ended")
 		http.Error(w, "Stream ended", http.StatusServiceUnavailable)
 		return
 	case <-timer.C:
+		c.mtx.RLock()
+		muxerPrimed := c.seg != nil
+		c.mtx.RUnlock()
+		c.logger.Warn().
+			Str("client_ip", r.RemoteAddr).
+			Bool("muxer_primed", muxerPrimed).
+			Dur("since_connection_created", time.Since(c.createdAt)).
+			Msg("Playlist request timed out waiting for the stream to prime")
 		w.Header().Set("Retry-After", "1")
 		http.Error(w, "Stream not primed yet", http.StatusServiceUnavailable)
 		return
@@ -108,15 +126,43 @@ func (c *Connection) servePlaylist(w http.ResponseWriter, r *http.Request) {
 
 	c.mtx.RLock()
 	data := c.seg.playlistSnapshot()
+	info, _ := c.seg.playlistInfo()
 	c.mtx.RUnlock()
+
+	c.viewers.playlistServed(r, info)
+	c.logger.Trace().
+		Str("client_ip", r.RemoteAddr).
+		Uint64("media_seq", info.mediaSeq).
+		Uint64("newest_seq", info.newestSeq).
+		Int("listed", info.listed).
+		Msg("Served HLS playlist")
 
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	serveBytes(w, r, data)
 }
 
-// serveBytes answers with an explicit Content-Length (no chunked encoding) and handles
-// HEAD and Range requests, which some players issue even for live streams.
+func (c *Connection) logSegmentNotFound(r *http.Request, filename string, seq uint64, isSegment bool, info playlistInfo, hasInfo bool) {
+	event := c.sampledLogger.Warn().Str("client_ip", r.RemoteAddr).Str("file", filename)
+	switch {
+	case !isSegment:
+		event.Msg("Unknown HLS file requested") // Usually a segment of an earlier stream session from a cached playlist
+		return
+	case !hasInfo:
+		event.Msg("HLS segment requested before any segment exists")
+		return
+	}
+
+	event = event.Uint64("oldest_seq", info.oldestSeq).Uint64("newest_seq", info.newestSeq)
+	switch {
+	case seq < info.oldestSeq:
+		event.Uint64("segments_behind", info.oldestSeq-seq).Msg("HLS segment already expired, the player fell too far behind live")
+	default:
+		event.Uint64("segments_ahead", seq-info.newestSeq).Msg("HLS segment does not exist yet")
+	}
+}
+
+// serveBytes answers with an explicit Content-Length (no chunked encoding) and handles HEAD and Range requests, which some players issue even for live streams.
 func serveBytes(w http.ResponseWriter, r *http.Request, data []byte) {
 	w.Header().Set("Accept-Ranges", "bytes")
 	if r.Header.Get("Range") != "" {
@@ -170,15 +216,23 @@ func (c *Connection) Write(streams []types.BufferOutput) error {
 		return errors.New("missing audio or video stream from haven")
 	}
 
-	sps, pps, _, err := c.extractMetadata(&videoCh, &audioCh)
+	sps, pps, asc, err := c.extractMetadata(&videoCh, &audioCh)
 	if err != nil {
 		return fmt.Errorf("failed to extract streams metadata: %w", err)
 	}
+	c.logger.Info().
+		Int("sps_bytes", len(sps)).
+		Int("pps_bytes", len(pps)).
+		Int("audio_sample_rate", asc.SampleRate).
+		Uint8("audio_channel_config", asc.ChannelConfig).
+		Dur("since_connection_created", time.Since(c.createdAt)).
+		Msg("Extracted stream metadata, priming HLS muxer")
 
 	err = c.primeMuxer(sps, pps)
 	if err != nil {
 		return fmt.Errorf("failed to prime HLS muxer: %w", err)
 	}
+	c.wg.Go(c.monitor)
 
 	c.handleFrames(videoCh, c.writeH264)
 	c.handleFrames(audioCh, c.writeAAC)
@@ -342,14 +396,15 @@ func (c *Connection) writeH264(frame types.Frame) error {
 		return err
 	}
 	if c.seg.ready() {
-		c.readyOnce.Do(func() { close(c.ready) })
+		c.readyOnce.Do(func() {
+			c.logger.Info().Dur("since_connection_created", time.Since(c.createdAt)).Msg("HLS stream primed, serving playlist")
+			close(c.ready)
+		})
 	}
 	return nil
 }
 
-// writeAAC keeps each ADTS frame's header intact (unlike a fMP4 muxer, MPEG-TS
-// PES payloads for AAC are expected to carry the ADTS header per frame).
-// All ADTS frames of one input frame go into a single PES, since they share one PTS.
+// writeAAC keeps each ADTS frame's header intact.
 func (c *Connection) writeAAC(frame types.Frame) error {
 	frameData := frame.Data()
 	basePts := frame.Header().Pts
@@ -374,5 +429,5 @@ func (c *Connection) writeAAC(frame types.Frame) error {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	return c.seg.onAudioFrame(adts, ptsTicks)
+	return c.seg.onAudioFrame(adts, frame, ptsTicks)
 }

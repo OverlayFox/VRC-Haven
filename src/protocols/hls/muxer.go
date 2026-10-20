@@ -28,8 +28,6 @@ var (
 	audNALU         = []byte{naluTypeAUD, 0xF0}
 )
 
-// segmentWriter lets a single astits muxer feed consecutive segments, which keeps
-// continuity counters and table versions continuous across segment boundaries.
 type segmentWriter struct {
 	w io.Writer
 }
@@ -65,8 +63,6 @@ func newTSMuxer(ctx context.Context, sps, pps []byte) (*tsMuxer, error) {
 	return &tsMuxer{mux: mux, out: out, sps: sps, pps: pps}, nil
 }
 
-// setOutput directs all following packets to w. astits writes PAT/PMT before every
-// keyframe on the PCR PID, so each segment (which starts at a keyframe) begins with them.
 func (m *tsMuxer) setOutput(w io.Writer) {
 	m.out.w = w
 }
@@ -115,18 +111,23 @@ func (m *tsMuxer) writeVideoAccessUnit(nalus [][]byte, ptsTicks, dtsTicks int64,
 		RandomAccessIndicator: keyFrame,
 	}
 
+	optionalHeader := &astits.PESOptionalHeader{
+		PTSDTSIndicator:        astits.PTSDTSIndicatorOnlyPTS,
+		PTS:                    &astits.ClockReference{Base: ptsTicks + tsClockOffset},
+		DataAlignmentIndicator: true,
+	}
+	if dtsTicks != ptsTicks {
+		optionalHeader.PTSDTSIndicator = astits.PTSDTSIndicatorBothPresent
+		optionalHeader.DTS = &astits.ClockReference{Base: dtsTicks + tsClockOffset}
+	}
+
 	_, err := m.mux.WriteData(&astits.MuxerData{
 		PID:             videoPID,
 		AdaptationField: adaptationField,
 		PES: &astits.PESData{
 			Data: payload,
 			Header: &astits.PESHeader{
-				OptionalHeader: &astits.PESOptionalHeader{
-					PTSDTSIndicator:        astits.PTSDTSIndicatorBothPresent,
-					PTS:                    &astits.ClockReference{Base: ptsTicks + tsClockOffset},
-					DTS:                    &astits.ClockReference{Base: dtsTicks + tsClockOffset},
-					DataAlignmentIndicator: true,
-				},
+				OptionalHeader: optionalHeader,
 			},
 		},
 	})
@@ -138,6 +139,10 @@ func (m *tsMuxer) writeVideoAccessUnit(nalus [][]byte, ptsTicks, dtsTicks int64,
 func (m *tsMuxer) writeAudioAccessUnit(adts []byte, ptsTicks int64) error {
 	_, err := m.mux.WriteData(&astits.MuxerData{
 		PID: audioPID,
+		// Every AAC frame is a random access point.
+		// Without the flag, demuxers that wait for one (Media Foundation, which VRChat uses on PC) never start the audio stream,
+		// so the audio-driven clock never runs and video freezes on its first frame.
+		AdaptationField: &astits.PacketAdaptationField{RandomAccessIndicator: true},
 		PES: &astits.PESData{
 			Data: adts,
 			Header: &astits.PESHeader{
