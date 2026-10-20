@@ -12,11 +12,12 @@ import (
 
 	"github.com/OverlayFox/VRC-Stream-Haven/src/geo"
 	"github.com/OverlayFox/VRC-Stream-Haven/src/haven"
+	"github.com/OverlayFox/VRC-Stream-Haven/src/logging"
 	"github.com/OverlayFox/VRC-Stream-Haven/src/protocols/hls"
 	"github.com/OverlayFox/VRC-Stream-Haven/src/protocols/srt"
 )
 
-var logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: "15:04:05"}).With().Str("component", "flagship").Timestamp().Logger()
+var logger zerolog.Logger
 
 func startPyroscope(serverAddress string) {
 	logger.Info().Str("address", serverAddress).Msg("Starting Pyroscope profiler")
@@ -37,16 +38,13 @@ func startPyroscope(serverAddress string) {
 	}
 }
 
-func loadEnv() {
-	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
-		logger.Panic().Err(err).Msg("Error loading .env file")
-	}
-}
-
 func main() {
-	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	envErr := godotenv.Load()
+	logger = logging.New("flagship")
+	if envErr != nil && !os.IsNotExist(envErr) {
+		logger.Panic().Err(envErr).Msg("Error loading .env file")
+	}
 	logger.Info().Msg("Starting in Flagship mode")
-	loadEnv()
 
 	pyroscopeAddr := os.Getenv("PYROSCOPE_SERVER_ADDRESS")
 	if pyroscopeAddr != "" {

@@ -49,7 +49,7 @@ type MpegTsDemuxer struct {
 func NewMpegTsDemuxer(upstreamCtx context.Context, logger zerolog.Logger, settings Settings) *MpegTsDemuxer {
 	ctx, cancel := context.WithCancel(upstreamCtx)
 	demux := &MpegTsDemuxer{
-		logger:   logger.With().Str("submodule", "multiplexer").Logger(),
+		logger:   logger,
 		settings: settings,
 
 		buffer:    NewSyncBuffer(settings.InputBufferCap),

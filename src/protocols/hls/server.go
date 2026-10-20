@@ -43,7 +43,7 @@ func New(upstreamCtx context.Context, logger zerolog.Logger, config Config, have
 
 	ctx, cancel := context.WithCancel(upstreamCtx)
 	s := &Server{
-		logger: logger,
+		logger: logger.With().Str("component", "hls").Logger(),
 		config: config,
 
 		haven:      haven,
@@ -73,7 +73,7 @@ func (s *Server) Start() {
 			s.logger.Error().Err(err).Msg("HLS server failed to start")
 		}
 	})
-	s.logger.Info().Msgf("HLS server started on %s:%d", s.config.Address, s.config.Port)
+	s.logger.Info().Str("address", s.config.Address).Int("port", s.config.Port).Msg("HLS server started")
 }
 
 func (s *Server) Close() {
@@ -108,7 +108,7 @@ func (s *Server) validate(path string) (int, error) {
 // slowSegmentTransfer is the download time above which a segment takes about as long to fetch as it lasts, which drains the player's buffer.
 const slowSegmentTransfer = segmentMinDuration
 
-// responseRecorder captures what was sent to a client, for request logging.
+// responseRecorder captures what was sent to a client, so failed transfers can be logged.
 type responseRecorder struct {
 	http.ResponseWriter
 
@@ -148,40 +148,40 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.serveHTTP(rec, r)
 }
 
-// logRequest logs a finished request. Only the file name is logged, since the path before it carries the stream's passphrase.
+// logRequest logs a successful response the client did not receive in full or in time, other outcomes are logged where they are decided.
+// Only the file name is logged, since the path before it carries the stream's passphrase.
 func (s *Server) logRequest(rec *responseRecorder, r *http.Request, duration time.Duration) {
+	if rec.status != http.StatusOK && rec.status != http.StatusPartialContent {
+		return
+	}
 	file := ""
 	if parts := strings.SplitN(r.URL.Path, "/", 4); len(parts) == 4 {
 		file = parts[3]
 	}
 
-	event := s.logger.Trace()
-	msg := "HLS request"
-	if rec.status == http.StatusOK || rec.status == http.StatusPartialContent {
-		contentLength, _ := strconv.Atoi(rec.Header().Get("Content-Length"))
-		switch {
-		case rec.writeErr != nil || (r.Method != http.MethodHead && rec.bytes < contentLength):
-			event = s.logger.Warn()
-			msg = "HLS response cut short, the client disconnected mid-transfer"
-		case strings.HasSuffix(file, ".ts") && duration > slowSegmentTransfer:
-			event = s.logger.Warn()
-			msg = "Slow HLS segment transfer, the client may not keep up with live"
-		}
+	var msg string
+	contentLength, _ := strconv.Atoi(rec.Header().Get("Content-Length"))
+	switch {
+	case rec.writeErr != nil || (r.Method != http.MethodHead && rec.bytes < contentLength):
+		msg = "HLS response cut short, the client disconnected mid-transfer"
+	case strings.HasSuffix(file, ".ts") && duration > slowSegmentTransfer:
+		msg = "Slow HLS segment transfer, the client may not keep up with live"
+	default:
+		return
 	}
 
+	event := logClient(s.logger.Warn(), r)
 	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
 		event = event.Str("range", rangeHeader)
 	}
 	if rec.writeErr != nil {
 		event = event.AnErr("write_error", rec.writeErr)
 	}
-	event.Str("client_ip", r.RemoteAddr).
-		Str("method", r.Method).
+	event.Str("method", r.Method).
 		Str("file", file).
 		Int("status", rec.status).
 		Int("bytes", rec.bytes).
 		Dur("duration", duration).
-		Str("user_agent", r.UserAgent()).
 		Msg(msg)
 }
 
@@ -217,7 +217,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 	status, err := s.validate(r.URL.Path)
 	if err != nil {
-		s.logger.Info().Err(err).Str("client_ip", r.RemoteAddr).Msg("HLS request validation failed")
+		logClient(s.logger.Warn(), r).Err(err).Int("status", status).Msg("HLS request validation failed")
 		http.Error(w, err.Error(), status)
 		return
 	}
@@ -231,11 +231,11 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 	s.connMtx.Lock()
 	if s.connection == nil {
-		s.logger.Info().Str("client_ip", r.RemoteAddr).Msg("First HLS viewer connected, priming stream muxer...")
+		logClient(s.logger.Info(), r).Msg("First HLS viewer connected, priming stream muxer")
 		conn := NewConnection(s.ctx, s.logger, location)
 		if err := s.haven.AddConnection(conn); err != nil {
 			s.connMtx.Unlock()
-			s.logger.Error().Err(err).Str("client_ip", r.RemoteAddr).Msg("Failed to hook HLS connection to stream haven")
+			logClient(s.logger.Error(), r).Err(err).Msg("Failed to hook HLS connection to stream haven")
 			http.Error(w, "Failed to initialize stream", http.StatusInternalServerError)
 			return
 		}
@@ -259,7 +259,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) tryRedirectToEscort(w http.ResponseWriter, r *http.Request) bool {
 	addr, err := net.ResolveTCPAddr("tcp", r.RemoteAddr)
 	if err != nil {
-		s.logger.Error().Err(err).Str("client_ip", r.RemoteAddr).Msg("Failed to resolve client address")
+		logClient(s.logger.Error(), r).Err(err).Msg("Failed to resolve client address")
 		http.Error(w, "Failed to resolve client address", http.StatusInternalServerError)
 		return true // handled (with error)
 	}
@@ -286,7 +286,8 @@ func (s *Server) tryRedirectToEscort(w http.ResponseWriter, r *http.Request) boo
 		return true
 	}
 
-	s.logger.Info().Str("client_ip", r.RemoteAddr).Str("redirect_uri", target.String()).Msg("Redirecting HLS request")
+	// Only the escort is logged, since the redirect path carries the stream's passphrase
+	logClient(s.logger.Info(), r).Str("escort", target.Host).Msg("Redirecting HLS request to escort")
 	http.Redirect(w, r, target.String(), http.StatusMovedPermanently) // #nosec G710 -- host is the escort's address, not user input
 	return true
 }
@@ -299,17 +300,17 @@ func (s *Server) serveManifestRedirect(w http.ResponseWriter, r *http.Request, t
 
 	targetURL := target.String()
 	if !isValidURL(targetURL) {
-		s.logger.Error().Str("client_ip", r.RemoteAddr).Str("url", targetURL).Msg("Invalid redirect URL")
+		logClient(s.logger.Error(), r).Str("escort", target.Host).Msg("Invalid escort redirect URL")
 		return
 	}
 
 	manifest := fmt.Sprintf("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=5000000\n%s\n", targetURL)
 	_, err := w.Write([]byte(manifest)) // #nosec G705 -- URL validated
 	if err != nil {
-		s.logger.Error().Err(err).Str("client_ip", r.RemoteAddr).Msg("Failed to write manifest response")
+		logClient(s.logger.Error(), r).Err(err).Msg("Failed to write escort redirect manifest")
 		return
 	}
-	s.logger.Debug().Str("client_ip", r.RemoteAddr).Str("target", targetURL).Msg("Served absolute manifest redirect")
+	logClient(s.logger.Info(), r).Str("escort", target.Host).Msg("Redirected HLS playlist to escort")
 }
 
 func isValidURL(urlStr string) bool {

@@ -1,6 +1,8 @@
 package hls
 
 import (
+	"fmt"
+	"hash/fnv"
 	"net"
 	"net/http"
 	"sync"
@@ -15,11 +17,36 @@ const (
 	viewerIdleTimeout = 15 * time.Second
 	minStallTimeout   = 5 * time.Second
 	slowMediaRate     = 0.9
+
+	// notFoundLogInterval limits missing segment lines to one per viewer per interval, the rest are counted in segments_not_found.
+	notFoundLogInterval = 10 * time.Second
 )
 
 // stallTimeout returns how long the playlist or a viewer may go without progress.
 func stallTimeout(targetDuration int) time.Duration {
 	return max(minStallTimeout, 3*time.Duration(targetDuration)*time.Second)
+}
+
+// clientIP returns the IP of r without the port, since players open new TCP connections freely.
+func clientIP(r *http.Request) string {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
+}
+
+// viewerID is a short stable ID for one player, telling apart players behind the same IP.
+func viewerID(ip, userAgent string) string {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(ip + " " + userAgent))
+	return fmt.Sprintf("%08x", h.Sum32())
+}
+
+// logClient adds the fields that tie a line to the player behind r.
+func logClient(e *zerolog.Event, r *http.Request) *zerolog.Event {
+	ip := clientIP(r)
+	return e.Str("client_ip", ip).Str("viewer_id", viewerID(ip, r.UserAgent()))
 }
 
 func durSince(e *zerolog.Event, key string, now, t time.Time) *zerolog.Event {
@@ -31,6 +58,7 @@ func durSince(e *zerolog.Event, key string, now, t time.Time) *zerolog.Event {
 
 // viewer is one player, identified by IP and user agent since players open new TCP connections freely.
 type viewer struct {
+	id        string
 	ip        string
 	userAgent string
 
@@ -38,6 +66,7 @@ type viewer struct {
 	lastSeen       time.Time
 	lastPlaylistAt time.Time
 	lastSegmentAt  time.Time
+	lastNotFoundAt time.Time
 
 	playlistRequests int
 	segmentRequests  int
@@ -51,6 +80,7 @@ type viewer struct {
 
 func (v *viewer) log(e *zerolog.Event, now time.Time) *zerolog.Event {
 	e = e.Str("client_ip", v.ip).
+		Str("viewer_id", v.id).
 		Str("user_agent", v.userAgent).
 		Dur("watched", v.lastSeen.Sub(v.firstSeen)).
 		Int("playlist_requests", v.playlistRequests).
@@ -78,18 +108,15 @@ func newViewerTracker(logger zerolog.Logger) *viewerTracker {
 
 // get returns the viewer behind r, the caller must hold mtx.
 func (t *viewerTracker) get(r *http.Request, now time.Time) *viewer {
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		ip = r.RemoteAddr
-	}
+	ip := clientIP(r)
 	userAgent := r.UserAgent()
 
 	key := ip + " " + userAgent
 	v, ok := t.viewers[key]
 	if !ok {
-		v = &viewer{ip: ip, userAgent: userAgent, firstSeen: now}
+		v = &viewer{id: viewerID(ip, userAgent), ip: ip, userAgent: userAgent, firstSeen: now}
 		t.viewers[key] = v
-		t.logger.Info().Str("client_ip", ip).Str("user_agent", userAgent).Int("viewers", len(t.viewers)).Msg("New HLS viewer")
+		t.logger.Info().Str("client_ip", ip).Str("viewer_id", v.id).Str("user_agent", userAgent).Int("viewers", len(t.viewers)).Msg("New HLS viewer")
 	}
 	v.lastSeen = now
 	return v
@@ -117,11 +144,19 @@ func (t *viewerTracker) segmentServed(r *http.Request, seq uint64) {
 	v.lastSegmentSeq = seq
 }
 
-func (t *viewerTracker) segmentNotFound(r *http.Request) {
+// segmentNotFound counts a missing segment and reports whether to log it, see notFoundLogInterval.
+func (t *viewerTracker) segmentNotFound(r *http.Request) (notFound int, shouldLog bool) {
 	t.mtx.Lock()
 	defer t.mtx.Unlock()
 
-	t.get(r, time.Now()).notFound++
+	now := time.Now()
+	v := t.get(r, now)
+	v.notFound++
+	if now.Sub(v.lastNotFoundAt) < notFoundLogInterval {
+		return v.notFound, false
+	}
+	v.lastNotFoundAt = now
+	return v.notFound, true
 }
 
 func (t *viewerTracker) count() int {

@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - optimised geo locator database load up to use less memory
 - improved Database cleanup
 - HLS escort redirect only keeps path and query of the request
+- cleaned up logging: no more per-request, per-segment and per-frame lines, every HLS player line carries `client_ip` and `viewer_id`, consistent `node`/`component`/`module` fields, full timestamps, no colors when not writing to a terminal, `LOG_LEVEL` and `LOG_FORMAT` environment variables
+- HLS redirect logs no longer include the stream passphrase
 
 ### Removed
 

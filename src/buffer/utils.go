@@ -3,11 +3,18 @@ package buffer
 import (
 	"encoding/binary"
 	"errors"
+	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/yapingcat/gomedia/go-codec"
 
 	"github.com/OverlayFox/VRC-Stream-Haven/src/types"
 )
+
+// newDropLogger rate limits dropped frame warnings, which otherwise repeat for every frame while a reader lags.
+func newDropLogger(logger zerolog.Logger) zerolog.Logger {
+	return logger.Sample(&zerolog.BurstSampler{Burst: 1, Period: 5 * time.Second})
+}
 
 func CloseAndDrain(ch chan types.Frame) {
 	close(ch)

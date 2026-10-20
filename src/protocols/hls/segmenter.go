@@ -39,18 +39,18 @@ type segmentStats struct {
 
 // timestampTracker warns about timestamps that go backwards or jump, both of which make players wait for media that never arrives.
 type timestampTracker struct {
-	stream string
-	last   time.Duration
-	seen   bool
+	track string
+	last  time.Duration
+	seen  bool
 }
 
 func (t *timestampTracker) check(logger zerolog.Logger, ts time.Duration) {
 	if t.seen {
 		switch delta := ts - t.last; {
 		case delta <= 0:
-			logger.Warn().Str("stream", t.stream).Dur("previous", t.last).Dur("current", ts).Msg("Timestamps are not increasing")
+			logger.Warn().Str("track", t.track).Dur("previous", t.last).Dur("current", ts).Msg("Timestamps are not increasing")
 		case delta > timestampJumpWarning:
-			logger.Warn().Str("stream", t.stream).Dur("gap", delta).Dur("current", ts).Msg("Timestamps jumped forward")
+			logger.Warn().Str("track", t.track).Dur("gap", delta).Dur("current", ts).Msg("Timestamps jumped forward")
 		}
 	}
 	t.last = ts
@@ -87,8 +87,8 @@ func newSegmenter(logger zerolog.Logger, mux *tsMuxer, playlist *livePlaylist) *
 		sampledLogger: logger.Sample(&zerolog.BurstSampler{Burst: 5, Period: 10 * time.Second}),
 		mux:           mux,
 		playlist:      playlist,
-		videoDTS:      timestampTracker{stream: "video"},
-		audioPTS:      timestampTracker{stream: "audio"},
+		videoDTS:      timestampTracker{track: "video"},
+		audioPTS:      timestampTracker{track: "audio"},
 	}
 }
 
@@ -146,7 +146,6 @@ func (s *segmenter) finishSegment(endPTS time.Duration) {
 	s.health.lastSegmentAt = time.Now()
 	s.health.segments++
 
-	event := s.logger.Trace()
 	if s.stats.audioFrames == 0 {
 		s.sampledLogger.Warn().Uint64("seq", s.currentSeq).Msg("Segment has no audio, players may stall waiting for it")
 	} else {
@@ -155,15 +154,7 @@ func (s *segmenter) finishSegment(endPTS time.Duration) {
 			s.sampledLogger.Warn().Uint64("seq", s.currentSeq).Dur("av_offset", avOffset).
 				Msg("Audio and video timestamps are far apart, players may stall waiting for them to line up")
 		}
-		event = event.Dur("av_offset", avOffset)
 	}
-	event.Uint64("seq", s.currentSeq).
-		Dur("duration", duration).
-		Int("bytes", s.current.Len()).
-		Int("video_frames", s.stats.videoFrames).
-		Int("audio_frames", s.stats.audioFrames).
-		Dur("first_video_pts", s.stats.firstVideoPTS).
-		Msg("HLS segment finished")
 }
 
 func (s *segmenter) onVideoFrame(nalus [][]byte, frame types.Frame, ptsTicks, dtsTicks int64) error {

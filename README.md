@@ -87,6 +87,21 @@ The application will automatically check for and download database updates on st
 
 > **Note**: The database is not included in the repository due to licensing restrictions.
 
+### Logging
+
+Set these in the environment or `.env`:
+
+- `LOG_LEVEL`: `trace`, `debug`, `info` (default), `warn` or `error`
+- `LOG_FORMAT`: `json` writes one JSON object per line, anything else writes plain text (colored only on a terminal)
+
+Lines about one HLS player share `client_ip` and `viewer_id`. To follow one player through a log file:
+
+```bash
+grep "client_ip=203.0.113.7" haven.log            # every player behind that IP, the "New HLS viewer" line gives their viewer_id
+grep "viewer_id=1a2b3c4d" haven.log               # one player's session
+jq 'select(.viewer_id == "1a2b3c4d")' haven.log   # the same with LOG_FORMAT=json
+```
+
 ## Usage
 
 ### Running as Flagship

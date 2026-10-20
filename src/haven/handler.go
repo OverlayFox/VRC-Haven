@@ -45,7 +45,7 @@ type Haven struct {
 func NewHaven(upstreamCtx context.Context, logger zerolog.Logger, locator types.Locator, passphrase, streamID string) (types.Haven, error) {
 	ctx, cancel := context.WithCancel(upstreamCtx)
 	return &Haven{
-		logger: logger,
+		logger: logger.With().Str("component", "haven").Logger(),
 
 		streamID:   streamID,
 		passphrase: passphrase,
@@ -145,11 +145,11 @@ func (h *Haven) addEscort(conn types.ConnectionSRT) error {
 	h.wg.Go(func() {
 		select {
 		case <-h.ctx.Done():
-			h.logger.Debug().Msgf("Haven context done, closing escort '%s'", conn.GetAddr().String())
+			h.logger.Debug().Str("remote_addr", conn.GetAddr().String()).Msg("Haven context done, closing escort")
 			conn.Close()
 
 		case <-conn.GetCtx().Done():
-			h.logger.Debug().Msgf("Escort context done, removing escort '%s' from haven", conn.GetAddr().String())
+			h.logger.Debug().Str("remote_addr", conn.GetAddr().String()).Msg("Escort context done, removing escort from haven")
 
 			h.escortMtx.Lock()
 			defer h.escortMtx.Unlock()
@@ -174,17 +174,18 @@ func (h *Haven) addViewer(conn types.ConnectionRTSP) error {
 	h.viewers[conn.GetAddr()] = conn
 	h.viewersMtx.Unlock()
 
-	h.logger.Debug().Msgf("Added viewer '%s' to haven", conn.GetAddr().String())
+	viewerLogger := conn.GetLogger()
+	viewerLogger.Debug().Msg("Added viewer to haven")
 
 	bufferOutput, err := h.buffer.Subscribe(conn.GetCtx(), -2*time.Second)
 	if err != nil {
-		h.logger.Error().Err(err).Msgf("Failed to subscribe viewer '%s' to buffer", conn.GetAddr().String())
+		viewerLogger.Error().Err(err).Msg("Failed to subscribe viewer to buffer")
 		return err
 	}
 
 	err = conn.Write(bufferOutput)
 	if err != nil {
-		h.logger.Error().Err(err).Msgf("Failed to write buffer output to viewer '%s'", conn.GetAddr().String())
+		viewerLogger.Error().Err(err).Msg("Failed to write buffer output to viewer")
 		return err
 	}
 
@@ -192,11 +193,11 @@ func (h *Haven) addViewer(conn types.ConnectionRTSP) error {
 	h.wg.Go(func() {
 		select {
 		case <-h.ctx.Done():
-			h.logger.Debug().Msgf("Haven context done, closing viewer '%s'", conn.GetAddr().String())
+			viewerLogger.Debug().Msg("Haven context done, closing viewer")
 			conn.Close()
 
 		case <-conn.GetCtx().Done():
-			h.logger.Debug().Msgf("Viewer context done, removing viewer '%s' from haven", conn.GetAddr().String())
+			viewerLogger.Debug().Msg("Viewer context done, removing viewer from haven")
 
 			h.viewersMtx.Lock()
 			defer h.viewersMtx.Unlock()
@@ -248,13 +249,13 @@ func (h *Haven) initPublisher() {
 		h.buffer.Close()
 		h.buffer = nil
 	}
-	h.buffer = buffer.NewBuffer(publisherLogger.With().Str("component", "buffer").Logger())
+	h.buffer = buffer.NewBuffer(publisherLogger.With().Str("module", "buffer").Logger())
 
 	if h.demuxer != nil {
 		h.demuxer.Close()
 		h.demuxer = nil
 	}
-	h.demuxer = multiplexer.NewMpegTsDemuxer(h.publisher.GetCtx(), publisherLogger.With().Str("component", "demuxer").Logger(), multiplexer.Settings{
+	h.demuxer = multiplexer.NewMpegTsDemuxer(h.publisher.GetCtx(), publisherLogger.With().Str("module", "demuxer").Logger(), multiplexer.Settings{
 		InputBufferCap:  50,
 		OutputBufferCap: 200,
 		AudioDriftLimit: 20 * time.Millisecond,
@@ -267,7 +268,7 @@ func (h *Haven) clearPublisher() {
 
 	h.escortMtx.Lock()
 	for _, escort := range h.escorts {
-		h.logger.Info().Msgf("Closing escort '%s' as publisher has disconnected", escort.GetAddr().String())
+		h.logger.Info().Str("remote_addr", escort.GetAddr().String()).Msg("Closing escort as publisher has disconnected")
 		escort.Close()
 	}
 	h.escorts = make([]types.ConnectionSRT, 0)
@@ -275,7 +276,8 @@ func (h *Haven) clearPublisher() {
 
 	h.viewersMtx.Lock()
 	for addr, viewer := range h.viewers {
-		h.logger.Info().Msgf("Closing viewer '%s' as publisher has disconnected", viewer.GetAddr().String())
+		viewerLogger := viewer.GetLogger()
+		viewerLogger.Info().Msg("Closing viewer as publisher has disconnected")
 		viewer.Close()
 		delete(h.viewers, addr)
 	}

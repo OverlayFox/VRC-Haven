@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/rs/zerolog"
 
@@ -19,7 +20,9 @@ var (
 )
 
 type circularBuffer struct {
-	logger zerolog.Logger
+	logger     zerolog.Logger
+	dropLogger zerolog.Logger
+	dropped    atomic.Uint64
 
 	frames   []types.Frame
 	writePos int
@@ -37,13 +40,14 @@ type circularBuffer struct {
 func newCircularBuffer(logger zerolog.Logger, capacity int) *circularBuffer {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &circularBuffer{
-		logger:   logger,
-		frames:   make([]types.Frame, capacity),
-		writePos: 0,
-		cap:      capacity,
-		subs:     make(map[chan types.Frame]chan types.Frame),
-		ctx:      ctx,
-		cancel:   cancel,
+		logger:     logger,
+		dropLogger: newDropLogger(logger),
+		frames:     make([]types.Frame, capacity),
+		writePos:   0,
+		cap:        capacity,
+		subs:       make(map[chan types.Frame]chan types.Frame),
+		ctx:        ctx,
+		cancel:     cancel,
 	}
 }
 
@@ -58,7 +62,7 @@ func (cb *circularBuffer) broadcast(frame types.Frame) {
 			cf.Decommission()
 			return
 		default:
-			cb.logger.Warn().Msg("subscriber channel full, skipping frame")
+			cb.dropLogger.Warn().Uint64("dropped_total", cb.dropped.Add(1)).Msg("Subscriber live channel full, dropping frame")
 			cf.Decommission()
 		}
 	}
@@ -123,9 +127,11 @@ func (cb *circularBuffer) ReadFromPos(startPos int, upstreamCtx context.Context)
 		defer func() {
 			err := cb.removeSubscriber(ch)
 			if err != nil {
-				cb.logger.Error().Err(err).Msg("failed to remove subscriber")
+				cb.logger.Error().Err(err).Msg("Failed to remove subscriber")
 			}
 		}()
+		dropLogger := newDropLogger(cb.logger)
+		var dropped uint64
 		var history []types.Frame
 		cb.mtx.RLock()
 		for i := range cb.cap {
@@ -157,7 +163,8 @@ func (cb *circularBuffer) ReadFromPos(startPos int, upstreamCtx context.Context)
 				return
 			case ch <- frame:
 			default:
-				cb.logger.Warn().Msg("egress channel full, skipping history frame")
+				dropped++
+				dropLogger.Warn().Uint64("dropped_total", dropped).Msg("Egress channel full, dropping history frame")
 				frame.Decommission()
 			}
 		}
@@ -180,7 +187,8 @@ func (cb *circularBuffer) ReadFromPos(startPos int, upstreamCtx context.Context)
 					frame.Decommission()
 					return
 				default:
-					cb.logger.Warn().Msg("egress channel full, skipping live frame")
+					dropped++
+					dropLogger.Warn().Uint64("dropped_total", dropped).Msg("Egress channel full, dropping live frame")
 					frame.Decommission()
 				}
 			}

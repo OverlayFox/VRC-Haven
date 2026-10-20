@@ -54,7 +54,7 @@ type Locator struct {
 func NewLocator(upstreamCtx context.Context, logger zerolog.Logger, config Config) (types.Locator, error) {
 	ctx, cancel := context.WithCancel(upstreamCtx)
 	l := &Locator{
-		logger: logger,
+		logger: logger.With().Str("component", "geo").Logger(),
 		dbDir:  defaultDBDir,
 
 		ctx:    ctx,
@@ -106,7 +106,7 @@ func (l *Locator) GetLocation(addr net.Addr) (types.Location, error) {
 
 // Close cleans up resources.
 func (l *Locator) Close() error {
-	l.logger.Info().Msg("Shutting down geo locator...")
+	l.logger.Info().Msg("Shutting down geo locator")
 	l.cancel()
 
 	l.dbMtx.Lock()
@@ -154,9 +154,9 @@ func (l *Locator) loadDatabase() error {
 			continue
 		}
 		if err := os.Remove(fullPath); err != nil {
-			l.logger.Warn().Err(err).Msgf("Failed to remove old database file '%s'", e.Name())
+			l.logger.Warn().Err(err).Str("file", e.Name()).Msg("Failed to remove old database file")
 		} else {
-			l.logger.Info().Msgf("Removed old database file '%s'", e.Name())
+			l.logger.Info().Str("file", e.Name()).Msg("Removed old database file")
 		}
 	}
 
@@ -188,7 +188,7 @@ func (l *Locator) mountDatabase(path string) error {
 }
 
 func (l *Locator) updateDatabase() error {
-	l.logger.Info().Msg("Database is too old, updating....")
+	l.logger.Info().Msg("Database is too old, updating")
 
 	zipBytes, err := l.downloadDatabase()
 	if err != nil {

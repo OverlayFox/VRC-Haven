@@ -23,7 +23,8 @@ import (
 const playlistWaitTimeout = 7 * time.Second
 
 type Connection struct {
-	logger        zerolog.Logger
+	logger zerolog.Logger
+	// sampledLogger is for problems that can repeat on every frame
 	sampledLogger zerolog.Logger
 
 	location types.Location
@@ -42,8 +43,6 @@ type Connection struct {
 }
 
 func NewConnection(upstreamCtx context.Context, logger zerolog.Logger, location types.Location) types.ConnectionRTSP {
-	// logger = logger.With().Str("protocol", "hls").Str("location", location.String()).Logger()
-	logger = logger.With().Str("protocol", "hls").Logger()
 	ctx, cancel := context.WithCancel(upstreamCtx)
 	return &Connection{
 		logger:        logger,
@@ -84,8 +83,9 @@ func (c *Connection) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 	c.mtx.RUnlock()
 
 	if !ok {
-		c.viewers.segmentNotFound(r)
-		c.logSegmentNotFound(r, filename, seq, isSegment, info, hasInfo)
+		if notFound, shouldLog := c.viewers.segmentNotFound(r); shouldLog {
+			c.logSegmentNotFound(r, filename, notFound, seq, isSegment, info, hasInfo)
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -104,18 +104,17 @@ func (c *Connection) servePlaylist(w http.ResponseWriter, r *http.Request) {
 	select {
 	case <-c.ready:
 	case <-r.Context().Done():
-		c.logger.Debug().Str("client_ip", r.RemoteAddr).Msg("Client gave up on playlist request while the stream was priming")
+		logClient(c.logger.Info(), r).Msg("Client gave up on playlist request while the stream was priming")
 		return
 	case <-c.ctx.Done():
-		c.logger.Info().Str("client_ip", r.RemoteAddr).Msg("Playlist requested after the stream ended")
+		logClient(c.logger.Info(), r).Msg("Playlist requested after the stream ended")
 		http.Error(w, "Stream ended", http.StatusServiceUnavailable)
 		return
 	case <-timer.C:
 		c.mtx.RLock()
 		muxerPrimed := c.seg != nil
 		c.mtx.RUnlock()
-		c.logger.Warn().
-			Str("client_ip", r.RemoteAddr).
+		logClient(c.logger.Warn(), r).
 			Bool("muxer_primed", muxerPrimed).
 			Dur("since_connection_created", time.Since(c.createdAt)).
 			Msg("Playlist request timed out waiting for the stream to prime")
@@ -130,20 +129,14 @@ func (c *Connection) servePlaylist(w http.ResponseWriter, r *http.Request) {
 	c.mtx.RUnlock()
 
 	c.viewers.playlistServed(r, info)
-	c.logger.Trace().
-		Str("client_ip", r.RemoteAddr).
-		Uint64("media_seq", info.mediaSeq).
-		Uint64("newest_seq", info.newestSeq).
-		Int("listed", info.listed).
-		Msg("Served HLS playlist")
 
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	serveBytes(w, r, data)
 }
 
-func (c *Connection) logSegmentNotFound(r *http.Request, filename string, seq uint64, isSegment bool, info playlistInfo, hasInfo bool) {
-	event := c.sampledLogger.Warn().Str("client_ip", r.RemoteAddr).Str("file", filename)
+func (c *Connection) logSegmentNotFound(r *http.Request, filename string, notFound int, seq uint64, isSegment bool, info playlistInfo, hasInfo bool) {
+	event := logClient(c.logger.Warn(), r).Str("file", filename).Int("segments_not_found", notFound)
 	switch {
 	case !isSegment:
 		event.Msg("Unknown HLS file requested") // Usually a segment of an earlier stream session from a cached playlist
@@ -281,9 +274,7 @@ func (c *Connection) extractMetadata(videoCh, audioCh *chan types.Frame) (sps, p
 
 				if sps == nil || pps == nil {
 					extractedSps, extractedPps, err := ExtractSPSPPS(frame)
-					if err != nil {
-						c.logger.Debug().Err(err).Msg("SPS/PPS not in this frame, continuing")
-					} else {
+					if err == nil {
 						sps, pps = extractedSps, extractedPps
 						if sps != nil && pps != nil && asc != nil {
 							receiveDone <- struct{}{}
@@ -303,9 +294,7 @@ func (c *Connection) extractMetadata(videoCh, audioCh *chan types.Frame) (sps, p
 
 				if asc == nil {
 					extractedAsc, err := ExtractASC(frame)
-					if err != nil {
-						c.logger.Debug().Err(err).Msg("ASC not in this frame, continuing")
-					} else {
+					if err == nil {
 						asc = extractedAsc
 						if sps != nil && pps != nil && asc != nil {
 							receiveDone <- struct{}{}
@@ -351,7 +340,7 @@ func (c *Connection) handleFrames(packetCh <-chan types.Frame, muxFunc func(fram
 				}
 
 				if err := muxFunc(frame); err != nil {
-					c.logger.Error().Err(err).Msg("failed to mux frame")
+					c.sampledLogger.Error().Err(err).Msg("Failed to mux frame")
 				}
 				frame.Decommission()
 			}
