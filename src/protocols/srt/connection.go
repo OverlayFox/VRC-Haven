@@ -38,7 +38,6 @@ type connection struct {
 }
 
 func NewConnection(upstreamCtx context.Context, logger zerolog.Logger, haven types.Haven, locator types.Locator, conn goSrt.Conn, server types.ProtocolServer, config goSrt.Config) (types.ConnectionSRT, error) {
-	logger = logger.With().Str("type", "srt").Logger() // TODO: add IP and location once we have them
 	ctx, cancel := context.WithCancel(upstreamCtx)
 	c := &connection{
 		logger: logger,
@@ -49,7 +48,7 @@ func NewConnection(upstreamCtx context.Context, logger zerolog.Logger, haven typ
 		connType: types.ConnectionTypePublishingEscort,
 		isEscort: true,
 
-		demuxer: multiplexer.NewMpegTsDemuxer(ctx, logger.With().Str("component", "demuxer").Logger(), multiplexer.Settings{
+		demuxer: multiplexer.NewMpegTsDemuxer(ctx, logger.With().Str("module", "demuxer").Logger(), multiplexer.Settings{
 			InputBufferCap:  50,
 			OutputBufferCap: 200,
 			AudioDriftLimit: 20 * time.Millisecond,
@@ -65,14 +64,13 @@ func NewConnection(upstreamCtx context.Context, logger zerolog.Logger, haven typ
 }
 
 func NewConnectionFromRequest(upstreamCtx context.Context, logger zerolog.Logger, haven types.Haven, locator types.Locator, connReq goSrt.ConnRequest) (types.ConnectionSRT, error) {
-	logger = logger.With().Str("type", "srt").Logger() // TODO: add IP and location once we have them
 	ctx, cancel := context.WithCancel(upstreamCtx)
 	c := &connection{
 		logger: logger,
 
 		isEscort: false,
 
-		demuxer: multiplexer.NewMpegTsDemuxer(ctx, logger.With().Str("component", "demuxer").Logger(), multiplexer.Settings{
+		demuxer: multiplexer.NewMpegTsDemuxer(ctx, logger.With().Str("module", "demuxer").Logger(), multiplexer.Settings{
 			InputBufferCap:  50,
 			OutputBufferCap: 200,
 			AudioDriftLimit: 20 * time.Millisecond,
@@ -194,6 +192,9 @@ func (c *connection) read() (chan packet.Packet, chan error) {
 		defer close(pktCh)
 		defer close(errCh)
 
+		dropLogger := c.logger.Sample(&zerolog.BurstSampler{Burst: 1, Period: 5 * time.Second})
+		var dropped uint64
+
 		for {
 			if err := c.conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 				select {
@@ -212,7 +213,7 @@ func (c *connection) read() (chan packet.Packet, chan error) {
 					if !c.isEscort {
 						c.logger.Info().Err(err).Msg("SRT connection closed by peer or internally")
 					} else {
-						c.logger.Info().Err(err).Msg("SRT connection to flagship closed, retrying to connect...")
+						c.logger.Info().Err(err).Msg("SRT connection to flagship closed, reconnecting")
 						go func() {
 							_ = c.server.Dial(c.GetAddr().String(), fmt.Sprintf("escort:%s", c.haven.GetStreamID()), c.haven.GetPassphrase())
 						}()
@@ -221,7 +222,7 @@ func (c *connection) read() (chan packet.Packet, chan error) {
 					return
 
 				case errors.As(err, &netErr) && netErr.Timeout():
-					c.logger.Debug().Msgf("SRT read deadline exceeded timeout, retrying...")
+					c.logger.Debug().Msg("SRT read deadline exceeded, retrying")
 					continue
 
 				default:
@@ -242,7 +243,8 @@ func (c *connection) read() (chan packet.Packet, chan error) {
 				case <-c.ctx.Done():
 					return
 				default:
-					c.logger.Warn().Msg("SRT packet channel full, dropping packet")
+					dropped++
+					dropLogger.Warn().Uint64("dropped_total", dropped).Msg("SRT packet channel full, dropping packet")
 				}
 				continue
 			}

@@ -49,7 +49,7 @@ type MpegTsDemuxer struct {
 func NewMpegTsDemuxer(upstreamCtx context.Context, logger zerolog.Logger, settings Settings) *MpegTsDemuxer {
 	ctx, cancel := context.WithCancel(upstreamCtx)
 	demux := &MpegTsDemuxer{
-		logger:   logger.With().Str("submodule", "multiplexer").Logger(),
+		logger:   logger,
 		settings: settings,
 
 		buffer:    NewSyncBuffer(settings.InputBufferCap),
@@ -83,14 +83,8 @@ func (d *MpegTsDemuxer) write(pkt packet.Packet) error {
 			return fmt.Errorf("ts sync byte error at %d: got 0x%02X", i, raw[i])
 		}
 	}
-	for i := 0; i < len(raw); i += MpegTsPktSize {
-		segment := raw[i : i+MpegTsPktSize]
-		segmentCopy := make([]byte, len(segment))
-		copy(segmentCopy, segment)
-
-		if err := d.buffer.write(segmentCopy); err != nil {
-			return fmt.Errorf("buffer write failed: %w", err)
-		}
+	if err := d.buffer.write(raw); err != nil {
+		return fmt.Errorf("buffer write failed: %w", err)
 	}
 	return nil
 }

@@ -59,9 +59,9 @@ func ExtractASC(frame types.Frame) (asc *mpeg4audio.AudioSpecificConfig, err err
 	sampleRates := []int{96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350}
 
 	return &mpeg4audio.AudioSpecificConfig{
-		Type:         mpeg4audio.ObjectType(profile),
-		SampleRate:   sampleRates[sampleRateIdx],
-		ChannelCount: int(channelConfig),
+		Type:          mpeg4audio.ObjectType(profile),
+		SampleRate:    sampleRates[sampleRateIdx],
+		ChannelConfig: channelConfig,
 	}, nil
 }
 

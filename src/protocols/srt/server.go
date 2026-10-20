@@ -46,7 +46,7 @@ func New(upstreamCtx context.Context, logger zerolog.Logger, config Config, have
 
 	ctx, cancel := context.WithCancel(upstreamCtx)
 	s := &server{
-		logger: logger.With().Str("protocol", "srt").Logger(),
+		logger: logger.With().Str("component", "srt").Logger(),
 		config: config,
 
 		haven:   haven,
@@ -79,7 +79,7 @@ func (s *server) Start() {
 			acceptCh <- req
 		}
 	})
-	s.logger.Info().Msgf("Started SRT listener on address '%s:%d'", s.config.Address, s.config.Port)
+	s.logger.Info().Str("address", s.config.Address).Int("port", s.config.Port).Msg("Started SRT listener")
 
 	// handle incoming connections
 	s.wg.Go(func() {
@@ -131,7 +131,7 @@ func (s *server) Dial(address string, streamID, passphrase string) error {
 			break
 		}
 		tries++
-		s.logger.Warn().Err(err).Int("attempt", tries).Int64("backoff_ms", backoff.Milliseconds()).Msg("Failed to establish initial connection with Flagship SRT server, Retrying...")
+		s.logger.Warn().Err(err).Int("attempt", tries).Int64("backoff_ms", backoff.Milliseconds()).Msg("Failed to establish initial connection with Flagship SRT server, retrying")
 		select {
 		case <-s.ctx.Done():
 			return s.ctx.Err()

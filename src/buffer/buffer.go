@@ -21,8 +21,8 @@ type muxBuffer struct {
 func NewBuffer(log zerolog.Logger) types.Buffer {
 	b := &muxBuffer{
 		logger:   log,
-		videoBuf: newBufferStream(log.With().Str("process_name", "video_buffer").Logger(), types.BufferTypeVideo),
-		audioBuf: newBufferStream(log.With().Str("process_name", "audio_buffer").Logger(), types.BufferTypeAudio),
+		videoBuf: newBufferStream(log.With().Str("track", "video").Logger(), types.BufferTypeVideo),
+		audioBuf: newBufferStream(log.With().Str("track", "audio").Logger(), types.BufferTypeAudio),
 	}
 	return b
 }

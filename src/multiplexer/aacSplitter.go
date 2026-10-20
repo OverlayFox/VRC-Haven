@@ -57,7 +57,7 @@ func (s *AACFrameSplitter) SplitFrameWithTiming(pesData []byte, basePTS, baseDTS
 			s.logger.Warn().Dur("drift_ms", drift).
 				Dur("recent_pts_ms", s.recentPTS).
 				Dur("new_base_pts_ms", basePTS).
-				Msg("pts drift detected, resynchronizing AAC frame splitter timestamps")
+				Msg("PTS drift detected, resynchronizing AAC frame splitter timestamps")
 			s.recentPTS = basePTS
 			s.recentDTS = baseDTS
 		}
@@ -67,7 +67,7 @@ func (s *AACFrameSplitter) SplitFrameWithTiming(pesData []byte, basePTS, baseDTS
 		s.isInitialized.Store(true)
 		s.logger.Debug().Dur("pts", basePTS).
 			Dur("dts", baseDTS).
-			Msg("initialized AAC frame splitter timestamps")
+			Msg("Initialized AAC frame splitter timestamps")
 	}
 
 	var frames []types.Frame
@@ -77,7 +77,7 @@ func (s *AACFrameSplitter) SplitFrameWithTiming(pesData []byte, basePTS, baseDTS
 	codec.SplitAACFrame(pesData, func(aacFrameData []byte) {
 		duration, err := s.calculateFrameDuration(aacFrameData)
 		if err != nil {
-			s.logger.Error().Err(err).Msg("failed to calculate frame duration")
+			s.logger.Error().Err(err).Msg("Failed to calculate AAC frame duration")
 			return // invalid header
 		}
 
@@ -87,7 +87,7 @@ func (s *AACFrameSplitter) SplitFrameWithTiming(pesData []byte, basePTS, baseDTS
 			Dts: recentDTS,
 		}, aacFrameData)
 		if err != nil {
-			s.logger.Error().Err(err).Msg("failed to create frame from AAC data")
+			s.logger.Error().Err(err).Msg("Failed to create frame from AAC data")
 			return // invalid frame
 		}
 

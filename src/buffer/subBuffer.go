@@ -53,7 +53,7 @@ func newBufferStream(logger zerolog.Logger, bufType types.BufferType) types.SubB
 	ctx, cancel := context.WithCancel(context.Background())
 	return &subBuffer{
 		logger:    logger,
-		circBuf:   newCircularBuffer(logger.With().Str("process_name", fmt.Sprintf("circular_%s_buffer", bufType)).Logger(), BufCap),
+		circBuf:   newCircularBuffer(logger, BufCap),
 		cap:       BufCap,
 		keyFrames: types.NewOrderedMap[time.Duration, int](),
 		format:    types.FrameFormatUnknown,
@@ -124,7 +124,7 @@ func (b *subBuffer) writeVideo(frame types.Frame) error {
 			return fmt.Errorf("detect H.264 format failed: %w", err)
 		}
 		b.format = ff
-		b.logger.Debug().Msgf("detected H.264 format: %s", b.format)
+		b.logger.Debug().Stringer("format", b.format).Msg("Detected H.264 format")
 	}
 
 	pos := b.circBuf.Write(frame)
@@ -146,7 +146,7 @@ func (b *subBuffer) writeVideo(frame types.Frame) error {
 		b.mtx.RUnlock()
 		if healthy && enough {
 			b.ready.Store(true)
-			b.logger.Debug().Msg("video buffer ready")
+			b.logger.Debug().Msg("Video buffer ready")
 		}
 	}
 	frame.Decommission()
@@ -172,7 +172,7 @@ func (b *subBuffer) writeAudio(frame types.Frame) error {
 		b.mtx.RUnlock()
 		if healthy {
 			b.ready.Store(true)
-			b.logger.Debug().Msg("audio buffer ready")
+			b.logger.Debug().Msg("Audio buffer ready")
 		}
 	}
 	frame.Decommission()
@@ -227,7 +227,10 @@ func (b *subBuffer) subscribe(upstreamCtx context.Context, startPos int, _ time.
 		preDur := b.curPTS - firstFramePTS
 		b.mtx.RUnlock()
 
-		b.logger.Debug().Msgf("building prebuffer for new subscriber, prebuffer duration: '%02fsec'", preDur.Seconds())
+		b.logger.Debug().Dur("prebuffer", preDur).Msg("Building prebuffer for new subscriber")
+
+		dropLogger := newDropLogger(b.logger)
+		var dropped uint64
 
 		drainPreBuf := func() {
 			for _, f := range preBuf {
@@ -259,7 +262,8 @@ func (b *subBuffer) subscribe(upstreamCtx context.Context, startPos int, _ time.
 				return
 			case outCh <- frame:
 			default:
-				b.logger.Warn().Msg("downstream full, skipping prebuffer frame")
+				dropped++
+				dropLogger.Warn().Uint64("dropped_total", dropped).Msg("Subscriber full, dropping prebuffer frame")
 				frame.Decommission()
 			}
 		}
@@ -276,7 +280,8 @@ func (b *subBuffer) subscribe(upstreamCtx context.Context, startPos int, _ time.
 				select {
 				case outCh <- frame:
 				default:
-					b.logger.Warn().Msg("downstream full, skipping live frame")
+					dropped++
+					dropLogger.Warn().Uint64("dropped_total", dropped).Msg("Subscriber full, dropping live frame")
 					frame.Decommission()
 				}
 			}
@@ -295,7 +300,7 @@ func (b *subBuffer) Cancel() {
 }
 
 func (b *subBuffer) Close() {
-	b.logger.Debug().Msgf("closing buffer stream '%s'", b.bufType.String())
+	b.logger.Debug().Msg("Closing buffer stream")
 	b.wg.Wait()
 	b.mtx.Lock()
 	defer b.mtx.Unlock()
