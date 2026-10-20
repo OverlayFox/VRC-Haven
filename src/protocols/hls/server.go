@@ -56,6 +56,9 @@ func New(upstreamCtx context.Context, logger zerolog.Logger, config Config, have
 		Addr:        fmt.Sprintf("%s:%d", config.Address, config.Port),
 		Handler:     s,
 		ReadTimeout: 10 * time.Second,
+		// Players poll every target duration, keeping their connections open avoids a
+		// fresh TCP handshake and slow start per request for distant viewers.
+		IdleTimeout: 60 * time.Second,
 	}
 
 	return s, nil
@@ -167,10 +170,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.connMtx.Unlock()
 		})
 	}
+	conn := s.connection
 	s.connMtx.Unlock()
 
-	// Push the HLS request down to the underlying `gohlslib.Muxer`
-	s.connection.HandleHTTP(w, r)
+	// Push the HLS request down to the connection's playlist/segment handler
+	conn.HandleHTTP(w, r)
 }
 
 func (s *Server) tryRedirectToEscort(w http.ResponseWriter, r *http.Request) bool {
@@ -206,8 +210,7 @@ func (s *Server) tryRedirectToEscort(w http.ResponseWriter, r *http.Request) boo
 }
 
 func (s *Server) serveManifestRedirect(w http.ResponseWriter, r *http.Request, target *url.URL) {
-	targetPath := strings.Replace(r.URL.Path, "index.m3u8", "main_stream.m3u8", 1)
-	target.Path = targetPath
+	target.Path = r.URL.Path
 
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.WriteHeader(http.StatusOK)

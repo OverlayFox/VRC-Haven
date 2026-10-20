@@ -1,16 +1,17 @@
 package hls
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"path"
+	"strconv"
 	"sync"
 	"time"
 
-	"github.com/bluenviron/gohlslib/v2"
-	"github.com/bluenviron/gohlslib/v2/pkg/codecs"
 	"github.com/bluenviron/gortsplib/v5"
 	"github.com/bluenviron/mediacommon/v2/pkg/codecs/mpeg4audio"
 	"github.com/rs/zerolog"
@@ -24,10 +25,10 @@ type Connection struct {
 
 	location types.Location
 
-	muxer         *gohlslib.Muxer
-	videoTrack    *gohlslib.Track
-	audioTrack    *gohlslib.Track
-	aacSampleRate int
+	seg *segmenter
+	// ready is closed once the playlist holds enough segments for players to start
+	ready     chan struct{}
+	readyOnce sync.Once
 
 	wg     sync.WaitGroup
 	mtx    sync.RWMutex
@@ -42,6 +43,7 @@ func NewConnection(upstreamCtx context.Context, logger zerolog.Logger, location 
 	return &Connection{
 		logger:   logger,
 		location: location,
+		ready:    make(chan struct{}),
 		ctx:      ctx,
 		cancel:   cancel,
 	}
@@ -51,17 +53,82 @@ func (c *Connection) GetStream() *gortsplib.ServerStream {
 	return nil
 }
 
-// HandleHTTP serves the underlying LL-HLS multiplexer to HTTP clients.
+// playlistWaitTimeout bounds how long the first playlist request is held while the
+// stream primes. It stays below ExoPlayer's default 8s read timeout.
+const playlistWaitTimeout = 7 * time.Second
+
+// HandleHTTP serves the live playlist and its in-RAM MPEG-TS segments to HTTP clients.
+// Responses are written without holding the connection lock, so slow or distant
+// viewers never stall muxing.
 func (c *Connection) HandleHTTP(w http.ResponseWriter, r *http.Request) {
+	filename := path.Base(r.URL.Path)
+
+	if filename == playlistFilename {
+		c.servePlaylist(w, r)
+		return
+	}
+
 	c.mtx.RLock()
-	muxer := c.muxer
+	var data []byte
+	ok := false
+	if c.seg != nil {
+		data, ok = c.seg.segmentByFilename(filename)
+	}
 	c.mtx.RUnlock()
 
-	if muxer != nil {
-		muxer.Handle(w, r)
-	} else {
-		http.Error(w, "Stream not primed yet", http.StatusServiceUnavailable)
+	if !ok {
+		http.NotFound(w, r)
+		return
 	}
+
+	w.Header().Set("Content-Type", "video/mp2t")
+	// Segment names are unique per stream session, so their content never changes
+	w.Header().Set("Cache-Control", "public, max-age=60")
+	serveBytes(w, r, data)
+}
+
+// servePlaylist holds the request until the stream is primed instead of failing it,
+// since many players give up on the first error.
+func (c *Connection) servePlaylist(w http.ResponseWriter, r *http.Request) {
+	timer := time.NewTimer(playlistWaitTimeout)
+	defer timer.Stop()
+
+	select {
+	case <-c.ready:
+	case <-r.Context().Done():
+		return
+	case <-c.ctx.Done():
+		http.Error(w, "Stream ended", http.StatusServiceUnavailable)
+		return
+	case <-timer.C:
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "Stream not primed yet", http.StatusServiceUnavailable)
+		return
+	}
+
+	c.mtx.RLock()
+	data := c.seg.playlistSnapshot()
+	c.mtx.RUnlock()
+
+	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	serveBytes(w, r, data)
+}
+
+// serveBytes answers with an explicit Content-Length (no chunked encoding) and handles
+// HEAD and Range requests, which some players issue even for live streams.
+func serveBytes(w http.ResponseWriter, r *http.Request, data []byte) {
+	w.Header().Set("Accept-Ranges", "bytes")
+	if r.Header.Get("Range") != "" {
+		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
+		return
+	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = w.Write(data) // #nosec G705 -- our own playlist/MPEG-TS bytes, not user input
 }
 
 func (c *Connection) StartPlay() error {
@@ -103,12 +170,12 @@ func (c *Connection) Write(streams []types.BufferOutput) error {
 		return errors.New("missing audio or video stream from haven")
 	}
 
-	sps, pps, asc, err := c.extractMetadata(&videoCh, &audioCh)
+	sps, pps, _, err := c.extractMetadata(&videoCh, &audioCh)
 	if err != nil {
 		return fmt.Errorf("failed to extract streams metadata: %w", err)
 	}
 
-	err = c.primeMuxer(sps, pps, asc)
+	err = c.primeMuxer(sps, pps)
 	if err != nil {
 		return fmt.Errorf("failed to prime HLS muxer: %w", err)
 	}
@@ -122,12 +189,6 @@ func (c *Connection) Write(streams []types.BufferOutput) error {
 func (c *Connection) Close() {
 	c.cancel()
 	c.wg.Wait()
-
-	c.mtx.Lock()
-	if c.muxer != nil {
-		c.muxer.Close()
-	}
-	c.mtx.Unlock()
 
 	c.logger.Info().Msg("HLS connection closed")
 }
@@ -210,35 +271,18 @@ func (c *Connection) extractMetadata(videoCh, audioCh *chan types.Frame) (sps, p
 	}
 }
 
-func (c *Connection) primeMuxer(sps, pps []byte, asc *mpeg4audio.AudioSpecificConfig) error {
+func (c *Connection) primeMuxer(sps, pps []byte) error {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	c.videoTrack = &gohlslib.Track{
-		Codec: &codecs.H264{
-			SPS: sps,
-			PPS: pps,
-		},
-		ClockRate: 90000,
+	mux, err := newTSMuxer(c.ctx, sps, pps)
+	if err != nil {
+		return fmt.Errorf("failed to create HLS TS muxer: %w", err)
 	}
 
-	c.audioTrack = &gohlslib.Track{
-		Codec: &codecs.MPEG4Audio{
-			Config: *asc,
-		},
-		ClockRate: asc.SampleRate,
-	}
-	c.aacSampleRate = asc.SampleRate
+	c.seg = newSegmenter(c.logger, mux, newLivePlaylist())
 
-	c.muxer = &gohlslib.Muxer{
-		Variant:            gohlslib.MuxerVariantMPEGTS,
-		SegmentCount:       5,
-		SegmentMinDuration: 1 * time.Second,
-		Tracks:             []*gohlslib.Track{c.videoTrack, c.audioTrack},
-		// Explicitly leaving Directory blank guarantees segments remain purely in RAM
-	}
-
-	return c.muxer.Start()
+	return nil
 }
 
 func (c *Connection) handleFrames(packetCh <-chan types.Frame, muxFunc func(frame types.Frame) error) {
@@ -266,6 +310,9 @@ func (c *Connection) writeH264(frame types.Frame) error {
 	var nalus [][]byte
 
 	codec.SplitFrame(frameData, func(nalu []byte) bool {
+		if len(nalu) == 0 {
+			return true
+		}
 		naluCopy := make([]byte, len(nalu))
 		copy(naluCopy, nalu)
 		nalus = append(nalus, naluCopy)
@@ -280,33 +327,38 @@ func (c *Connection) writeH264(frame types.Frame) error {
 	if baseNanos < 0 {
 		return fmt.Errorf("invalid PTS for H264 frame: %d", baseNanos)
 	}
+	dtsNanos := frame.Header().Dts.Nanoseconds()
+	if dtsNanos < 0 {
+		return fmt.Errorf("invalid DTS for H264 frame: %d", dtsNanos)
+	}
 
-	pts := (baseNanos * 90000) / 1000000000
+	ptsTicks := (baseNanos * 90000) / 1000000000
+	dtsTicks := (dtsNanos * 90000) / 1000000000
+
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	return c.muxer.WriteH264(c.videoTrack, time.Now(), pts, nalus)
+	if err := c.seg.onVideoFrame(nalus, frame, ptsTicks, dtsTicks); err != nil {
+		return err
+	}
+	if c.seg.ready() {
+		c.readyOnce.Do(func() { close(c.ready) })
+	}
+	return nil
 }
 
+// writeAAC keeps each ADTS frame's header intact (unlike a fMP4 muxer, MPEG-TS
+// PES payloads for AAC are expected to carry the ADTS header per frame).
+// All ADTS frames of one input frame go into a single PES, since they share one PTS.
 func (c *Connection) writeAAC(frame types.Frame) error {
 	frameData := frame.Data()
 	basePts := frame.Header().Pts
 
-	var aacs [][]byte
+	var adts []byte
 	codec.SplitAACFrame(frameData, func(aac []byte) {
-		var adts codec.ADTS_Frame_Header
-		adts.Decode(aac)
-
-		headerLen := 7
-		if adts.Fix_Header.Protection_absent == 0 {
-			headerLen = 9
-		}
-
-		payload := make([]byte, len(aac)-headerLen)
-		copy(payload, aac[headerLen:])
-		aacs = append(aacs, payload)
+		adts = append(adts, aac...)
 	})
-	if len(aacs) == 0 {
+	if len(adts) == 0 {
 		return errors.New("no AAC frames found in audio frame")
 	}
 
@@ -315,9 +367,12 @@ func (c *Connection) writeAAC(frame types.Frame) error {
 		return fmt.Errorf("invalid PTS for AAC frame: %d", baseNanos)
 	}
 
-	pts := (baseNanos * int64(c.aacSampleRate)) / 1000000000
+	// PES timestamps always run on the fixed 90kHz MPEG-TS clock, regardless
+	// of the audio sample rate.
+	ptsTicks := (baseNanos * 90000) / 1000000000
+
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	return c.muxer.WriteMPEG4Audio(c.audioTrack, time.Now(), pts, aacs)
+	return c.seg.onAudioFrame(adts, ptsTicks)
 }
