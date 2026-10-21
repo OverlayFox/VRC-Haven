@@ -109,7 +109,7 @@ func (s *segmenter) finishSegment(endPTS time.Duration) {
 			Msg("Encoder keyframe interval is long, HLS latency will be high. Set the keyframe interval to 1s for lowest latency")
 	}
 
-	seq := s.stream.addSegment(duration, s.current.Bytes())
+	seq := s.stream.addSegment(duration, bytes.Clone(s.current.Bytes()))
 	s.health.lastSegmentAt = time.Now()
 	s.health.segments++
 
