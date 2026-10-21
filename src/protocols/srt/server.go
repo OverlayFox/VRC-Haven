@@ -15,6 +15,7 @@ import (
 
 const (
 	initialBackoff = 100 * time.Millisecond
+	maxBackoff     = 10 * time.Second
 )
 
 type Config struct {
@@ -139,6 +140,7 @@ func (s *server) Dial(address string, streamID, passphrase string) error {
 		case <-s.ctx.Done():
 			return s.ctx.Err()
 		case <-time.After(backoff):
+			backoff = min(backoff*2, maxBackoff)
 			continue
 		}
 	}

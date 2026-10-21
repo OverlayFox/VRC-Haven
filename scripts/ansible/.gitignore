@@ -1,0 +1,9 @@
+# Per user credentials, only the example is committed
+credentials/*.yml
+!credentials/example.yml
+
+# Binaries built by deploy.yml
+.build/
+
+# Python virtualenv for Ansible and the Linode modules
+.venv/

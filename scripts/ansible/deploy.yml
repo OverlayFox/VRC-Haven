@@ -1,0 +1,183 @@
+# Deploys escorts on Linode, one Linode 2GB per region, all pulling from an existing flagship.
+#
+#   ansible-playbook deploy.yml --ask-vault-pass -e linode_user=<linode username> \
+#     -e escort_regions=au-mel,eu-central -e flagship_ip=203.0.113.7 -e flagship_application=<stream id>
+#
+# Running it again with the same regions only updates the binary and config, new regions add instances.
+# Instances of removed regions are left running, destroy.yml removes the whole haven.
+
+- name: Provision the Linode instances
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - "credentials/{{ linode_user }}.yml"
+  vars:
+    escort_region_list: >-
+      {{ (escort_regions.split(',') if escort_regions is string else escort_regions)
+         | map('trim') | reject('equalto', '') | list }}
+  tasks:
+    - name: Check the inputs
+      ansible.builtin.assert:
+        that:
+          - linode_token | default('') | length > 0
+          - escort_region_list | length > 0
+          - escort_region_list | length == escort_region_list | unique | length
+          - flagship_ip | default('') | length > 0
+          - flagship_port | int > 0
+          # The app's limits: SRT takes 10 to 79 characters and both end up in the HLS path
+          - flagship_passphrase | default('') is match('^[A-Za-z0-9._~$&+,;=:@-]{10,79}$')
+          - flagship_application | default('') is match('^[A-Za-z0-9._~-]+$')
+        fail_msg: >-
+          Needs -e linode_user, unique escort_regions, flagship_ip, flagship_application (letters, digits, . _ ~ -),
+          linode_token in credentials/{{ linode_user }}.yml and a URL safe flagship_passphrase of 10 to 79 characters
+        quiet: true
+
+    - name: Build the escort binary
+      ansible.builtin.command:
+        argv: [go, build, -trimpath, -ldflags=-s -w, -o, "{{ haven_build_dir }}/haven-escort", ./cmd/escort]
+        chdir: "{{ haven_repo_dir }}"
+      environment:
+        CGO_ENABLED: "0"
+        GOOS: linux
+        GOARCH: amd64
+      changed_when: false
+
+    - name: Create the instances
+      linode.cloud.instance:
+        api_token: "{{ linode_token }}"
+        label: "{{ haven_name }}-escort-{{ item }}"
+        region: "{{ item }}"
+        type: "{{ linode_type }}"
+        image: "{{ linode_image }}"
+        authorized_keys: ["{{ lookup('ansible.builtin.file', ssh_public_key_file | expanduser) }}"]
+        tags:
+          - vrc-haven
+          - vrc-haven-{{ haven_name }}
+          - vrc-haven-escort
+        state: present
+        wait: true
+      loop: "{{ escort_region_list }}"
+      register: created
+
+    - name: Add the instances to the inventory
+      ansible.builtin.add_host:
+        name: "{{ item.instance.label }}"
+        ansible_host: "{{ item.instance.ipv4[0] }}"
+        ansible_user: root
+        groups: [escort]
+      loop: "{{ created.results }}"
+      loop_control:
+        label: "{{ item.instance.label }} {{ item.instance.ipv4[0] }}"
+      changed_when: false
+
+- name: Install and start the escorts
+  hosts: escort
+  gather_facts: false
+  vars_files:
+    - "credentials/{{ linode_user }}.yml"
+  handlers:
+    - name: Restart haven
+      ansible.builtin.systemd_service:
+        name: vrc-haven
+        state: restarted
+        daemon_reload: true
+  tasks:
+    - name: Wait for SSH on new instances
+      ansible.builtin.wait_for_connection:
+        timeout: 600
+
+    - name: Install packages
+      ansible.builtin.apt:
+        name: [ufw, ca-certificates]
+        update_cache: true
+        cache_valid_time: 3600
+        # unattended-upgrades often holds the lock right after the first boot
+        lock_timeout: 600
+
+    - name: Create the service user
+      ansible.builtin.user:
+        name: "{{ haven_service_user }}"
+        system: true
+        shell: /usr/sbin/nologin
+        home: "{{ haven_install_dir }}"
+        create_home: false
+
+    - name: Create the directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: root
+        group: "{{ haven_service_user }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "{{ haven_install_dir }}", mode: "0755" }
+        - { path: "{{ haven_config_dir }}", mode: "0750" }
+
+    - name: Copy the binary
+      ansible.builtin.copy:
+        src: "{{ haven_build_dir }}/haven-escort"
+        dest: "{{ haven_install_dir }}/haven"
+        mode: "0755"
+      notify: Restart haven
+
+    - name: Write the environment file
+      ansible.builtin.template:
+        src: haven.env.j2
+        dest: "{{ haven_config_dir }}/haven.env"
+        owner: root
+        group: "{{ haven_service_user }}"
+        mode: "0640"
+      notify: Restart haven
+
+    - name: Install the systemd unit
+      ansible.builtin.template:
+        src: vrc-haven.service.j2
+        dest: /etc/systemd/system/vrc-haven.service
+        mode: "0644"
+      notify: Restart haven
+
+    - name: Allow SSH
+      community.general.ufw:
+        rule: limit
+        port: "22"
+        proto: tcp
+
+    # The escort dials out to the flagship, so only HLS needs to be reachable
+    - name: Allow HLS
+      community.general.ufw:
+        rule: allow
+        port: "{{ haven_hls_port | string }}"
+        proto: tcp
+        comment: HLS
+
+    - name: Allow the dashboard only when it has a password
+      community.general.ufw:
+        rule: allow
+        port: "{{ haven_dashboard_port | string }}"
+        proto: tcp
+        comment: dashboard
+        delete: "{{ dashboard_password | default('') | length == 0 }}"
+
+    - name: Enable the firewall, denying everything else incoming
+      community.general.ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+
+    - name: Start the service
+      ansible.builtin.systemd_service:
+        name: vrc-haven
+        enabled: true
+        state: started
+        daemon_reload: true
+
+- name: Summary
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Show the escorts
+      ansible.builtin.debug:
+        msg: "{{ item }}: {{ hostvars[item].ansible_host }}, pulling from {{ flagship_ip }}:{{ flagship_port }}"
+      loop: "{{ groups['escort'] }}"

@@ -30,6 +30,16 @@ func main() {
 
 	profiling.StartFromEnv(logger)
 
+	// Escorts and viewers need both, they are part of the SRT stream ID and the HLS path
+	passphrase := os.Getenv("HAVEN_PASSPHRASE")
+	if passphrase == "" {
+		passphrase = "thisisaverysecurepassphrase"
+	}
+	streamID := os.Getenv("HAVEN_STREAM_ID")
+	if streamID == "" {
+		streamID = "test"
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	geoConf := geo.Config{
 		LicenseKey: os.Getenv("MAX_MIND_LICENSE_KEY"),
@@ -42,7 +52,7 @@ func main() {
 		return
 	}
 
-	haven, err := haven.NewHaven(ctx, logger, locator, "thisisaverysecurepassphrase", "test")
+	haven, err := haven.NewHaven(ctx, logger, locator, passphrase, streamID)
 	if err != nil {
 		logger.Panic().Err(err).Msg("Failed to create haven")
 		return
@@ -51,7 +61,7 @@ func main() {
 	hlsConf := hls.Config{
 		Port:           8554,
 		Address:        "0.0.0.0",
-		Passphrase:     "thisisaverysecurepassphrase",
+		Passphrase:     passphrase,
 		IsFlagship:     true,
 		WriteTimeout:   10 * time.Second,
 		WriteQueueSize: 8192,
