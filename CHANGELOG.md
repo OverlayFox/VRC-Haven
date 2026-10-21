@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - added a dashboard on port 80 (`DASHBOARD_PORT`) with a JSON API at `/api/status`: the flagship shows its publisher, escorts with location and SRT stats, readers redirected per escort and HLS clients with their status, escorts show their upstream link and HLS clients
 - added optional basic auth for the dashboard via `DASHBOARD_USER` and `DASHBOARD_PASSWORD`
 - escorts advertise the address they serve HLS on (`HLS_PUBLIC_ADDR`, defaults to their IP and HLS port)
+- the HLS playlist survives a publisher reconnect: players keep polling the held playlist while the publisher is gone, and a publisher back within 30 seconds continues it after an `#EXT-X-DISCONTINUITY` with the same segment names and an increasing media sequence
+- a publisher that does not reconnect within 30 seconds ends the HLS playlist with `#EXT-X-ENDLIST`, so players report the stream as ended instead of freezing, the ended playlist is discarded 10 seconds later
+- the dashboard shows when the HLS stream is waiting for its publisher or has ended (`ended` in `/api/status`)
 
 ### Changed
 
@@ -26,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - the escort SRT stream ID is now `escort:<stream id>:<hls address>`, escorts without an HLS address are rejected
 - an HLS connection now closes itself when its buffer subscription ends, so the next request starts a fresh one instead of serving a frozen playlist
 - packets are no longer cloned per escort, gosrt copies the payload itself
+- HLS requests while no publisher is live and no playlist is held now get a 503 with `Retry-After: 5` instead of a 500, and no longer log an error per request
 
 ### Removed
 
@@ -34,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - fixed VR-Chat freezing on the first frame of HLS streams
+- fixed VR-Chat freezing when the publisher disconnects, players got 500s for the playlist and then a new playlist whose media sequence went back to 0
 - fixed SRT packets being dropped before the demuxer
 - fixed HLS audio not being marked as random access
 - fixed viewers being redirected to the escort's SRT source port instead of its HLS server
