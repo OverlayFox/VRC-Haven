@@ -4,3 +4,6 @@ credentials/*.yml
 
 # Binaries built by deploy.yml
 .build/
+
+# Python virtualenv for Ansible and the Linode modules
+.venv/

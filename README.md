@@ -1,16 +1,16 @@
 <h1 align="center">VRC-Haven</h1>
 
 <p align="center">
-  <b>A self-hosted CDN that brings one SRT stream to VRChat viewers over HLS.</b>
+  <i>Very Reliant Content Haven</i> <br> <b>A self-hosted CDN that brings one SRT stream to VRChat viewers over HLS.</b>
 </p>
 
 <p align="center">
-  <a href="https://goreportcard.com/report/github.com/OverlayFox/VRC-Stream-Haven"><img src="https://goreportcard.com/badge/github.com/OverlayFox/VRC-Stream-Haven" alt="Go Report Card"></a>
   <a href="https://github.com/OverlayFox/VRC-Stream-Haven/actions/workflows/go.yml"><img src="https://github.com/OverlayFox/VRC-Stream-Haven/actions/workflows/go.yml/badge.svg" alt="Build Status"></a>
 </p>
 
 ## Table of Contents
 
+- [Table of Contents](#table-of-contents)
 - [Introduction](#introduction)
 - [Features](#features)
 - [Architecture](#architecture)
@@ -132,32 +132,30 @@ On startup the flagship downloads the database into `./GeoDatabase` if there is 
 
 Both binaries read their settings from environment variables, and from a `.env` file in the working directory if there is one. Copy [`.env.example`](.env.example) to get started.
 
-| Variable               | Used by  | Default                       | Meaning                                                                                    |
-| ---------------------- | -------- | ----------------------------- | ------------------------------------------------------------------------------------------ |
-| `MAX_MIND_ACCOUNT_ID`  | Flagship | required                      | MaxMind account ID                                                                         |
-| `MAX_MIND_LICENSE_KEY` | Flagship | required                      | MaxMind license key                                                                        |
-| `FLAGSHIP_SRT_ADDR`    | Escort   | `127.0.0.1:8890`              | `host:port` of the flagship's SRT server                                                   |
-| `HAVEN_PASSPHRASE`     | Escort   | `thisisaverysecurepassphrase` | Must match the flagship's passphrase                                                       |
-| `HAVEN_STREAM_ID`      | Escort   | `test`                        | Must match the flagship's stream ID                                                        |
-| `HLS_PORT`             | Escort   | `8555`                        | Port the escort serves HLS on                                                              |
+| Variable               | Used by  | Default                       | Meaning                                                                                                    |
+| ---------------------- | -------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `MAX_MIND_ACCOUNT_ID`  | Flagship | required                      | MaxMind account ID                                                                                         |
+| `MAX_MIND_LICENSE_KEY` | Flagship | required                      | MaxMind license key                                                                                        |
+| `FLAGSHIP_SRT_ADDR`    | Escort   | `127.0.0.1:8890`              | `host:port` of the flagship's SRT server                                                                   |
+| `HAVEN_PASSPHRASE`     | Both     | `thisisaverysecurepassphrase` | SRT encryption passphrase, 10 to 79 characters, escorts must use the flagship's                            |
+| `HAVEN_STREAM_ID`      | Both     | `test`                        | Stream ID, escorts must use the flagship's                                                                 |
+| `HLS_PORT`             | Escort   | `8555`                        | Port the escort serves HLS on                                                                              |
 | `HLS_PUBLIC_ADDR`      | Escort   | `:<HLS_PORT>`                 | `host:port` the flagship redirects viewers to, an empty host means the escort's IP as the flagship sees it |
-| `DASHBOARD_PORT`       | Both     | `8080`                        | Port of the [dashboard](#dashboard), ports below 1024 need root or `CAP_NET_BIND_SERVICE` |
-| `DASHBOARD_USER`       | Both     | empty                         | Basic auth user for the dashboard                                                          |
-| `DASHBOARD_PASSWORD`   | Both     | empty                         | Basic auth password, the dashboard has no auth when this is empty                          |
-| `LOG_LEVEL`            | Both     | `info`                        | See [Logging](#logging)                                                                    |
-| `LOG_FORMAT`           | Both     | text                          | See [Logging](#logging)                                                                    |
-| `PPROF_ADDR`           | Both     | off                           | Serves Go profiles for `go tool pprof` on this address, keep it off public interfaces      |
-
-> **Note**: The flagship's passphrase and stream ID are not configurable yet. It always uses the passphrase `thisisaverysecurepassphrase` and the stream ID `test`.
+| `DASHBOARD_PORT`       | Both     | `8080`                        | Port of the [dashboard](#dashboard), ports below 1024 need root or `CAP_NET_BIND_SERVICE`                  |
+| `DASHBOARD_USER`       | Both     | empty                         | Basic auth user for the dashboard                                                                          |
+| `DASHBOARD_PASSWORD`   | Both     | empty                         | Basic auth password, the dashboard has no auth when this is empty                                          |
+| `LOG_LEVEL`            | Both     | `info`                        | See [Logging](#logging)                                                                                    |
+| `LOG_FORMAT`           | Both     | text                          | See [Logging](#logging)                                                                                    |
+| `PPROF_ADDR`           | Both     | off                           | Serves Go profiles for `go tool pprof` on this address, keep it off public interfaces                      |
 
 ### Ports
 
-| Role     | Port        | Protocol | Purpose                                  |
-| -------- | ----------- | -------- | ---------------------------------------- |
-| Flagship | 8890        | UDP      | SRT, for the publisher and the escorts   |
-| Flagship | 8554        | TCP      | HLS                                      |
-| Both     | 8080        | TCP      | Dashboard (`DASHBOARD_PORT`)             |
-| Escort   | 8555        | TCP      | HLS (`HLS_PORT`)                         |
+| Role     | Port | Protocol | Purpose                                |
+| -------- | ---- | -------- | -------------------------------------- |
+| Flagship | 8890 | UDP      | SRT, for the publisher and the escorts |
+| Flagship | 8554 | TCP      | HLS                                    |
+| Both     | 8080 | TCP      | Dashboard (`DASHBOARD_PORT`)           |
+| Escort   | 8555 | TCP      | HLS (`HLS_PORT`)                       |
 
 ### Logging
 
@@ -180,10 +178,10 @@ jq 'select(.viewer_id == "1a2b3c4d")' haven.log   # the same with LOG_FORMAT=jso
 ./haven-flagship
 ```
 
-Point your publisher at the flagship's SRT port. The connection must be encrypted with the passphrase, and the stream ID has the form `publish:<stream id>`. In OBS, for example:
+Set `HAVEN_PASSPHRASE` and `HAVEN_STREAM_ID` first, the defaults are public. Then point your publisher at the flagship's SRT port. The connection must be encrypted with the passphrase, and the stream ID has the form `publish:<stream id>`. In OBS, for example:
 
 ```
-srt://<flagship ip>:8890?streamid=publish:test&passphrase=thisisaverysecurepassphrase
+srt://<flagship ip>:8890?streamid=publish:<stream id>&passphrase=<passphrase>
 ```
 
 Only one publisher can be connected at a time. Viewers open this URL, in VRChat for example in a video player:
@@ -225,21 +223,24 @@ The app shuts down on SIGINT, which the image sets as its stop signal.
 
 ### Deploying Escorts to Linode
 
-[`scripts/ansible`](scripts/ansible) creates escorts on Linode for a flagship you already run. You get one escort per region, each on a 1GB shared CPU instance, and every escort connects to your flagship.
+[`scripts/ansible`](scripts/ansible) creates escorts on Linode for a flagship you already run. You get one escort per region, each on a 2GB shared CPU instance, and every escort connects to your flagship.
 
-1. Install the tools on your machine. You also need Go installed.
+1. Install the tools into a virtualenv on your machine. You also need Go installed.
    ```bash
    cd scripts/ansible
+   python3 -m venv .venv
+   source .venv/bin/activate
    pip install ansible-core linode_api4 polling ansible-specdoc
    ansible-galaxy collection install -r requirements.yml
    ```
-2. Copy `credentials/example.yml` to `credentials/<linode username>.yml` and fill in your Linode API token and the flagship's passphrase. Then encrypt it with `ansible-vault encrypt`.
-   The instances accept the SSH keys on that Linode user's profile, so your local SSH key must be added there.
+   In a new shell, run `source .venv/bin/activate` again before the playbooks.
+2. Copy `credentials/example.yml` to `credentials/<linode username>.yml` and fill in the flagship's `HAVEN_PASSPHRASE` and a Linode API token with **Linodes: Read/Write** and **Events: Read Only**. Then encrypt it with `ansible-vault encrypt`.
+   Root on the instances gets your local `~/.ssh/id_ed25519.pub`, pass `-e ssh_public_key_file=<path>` for another key.
 3. Deploy, giving the regions and the flagship's details:
    ```bash
    ansible-playbook deploy.yml --ask-vault-pass -e linode_user=<linode username> \
      -e escort_regions=au-mel,eu-central \
-     -e flagship_ip=<flagship ip> -e flagship_port=8890 -e flagship_application=<stream id>
+     -e flagship_ip=<flagship ip> -e flagship_port=8890 -e flagship_application=<flagship's HAVEN_STREAM_ID>
    ```
 
 To remove every escort, run `ansible-playbook destroy.yml --ask-vault-pass -e linode_user=<linode username>`.
@@ -247,15 +248,15 @@ For more options, see [`scripts/ansible/README.md`](scripts/ansible/README.md).
 
 ## Development
 
-| Command                | Does                                                         |
-| ---------------------- | ------------------------------------------------------------ |
-| `make build`           | Builds all packages                                          |
-| `make test`            | Runs the tests with the race detector                        |
-| `make lint`            | Runs golangci-lint, install it with `make install-dev`       |
-| `make performance-test` | Starts the resource-limited flagship from `docker-compose.yml` |
-| `make pprof-web`       | Opens the pprof web UI on a running haven with `PPROF_ADDR` set |
-| `make pprof-capture`   | Saves a snapshot of a profile to `.pprof/`                   |
-| `make pprof-diff`      | Compares the two newest snapshots                            |
+| Command                 | Does                                                            |
+| ----------------------- | --------------------------------------------------------------- |
+| `make build`            | Builds all packages                                             |
+| `make test`             | Runs the tests with the race detector                           |
+| `make lint`             | Runs golangci-lint, install it with `make install-dev`          |
+| `make performance-test` | Starts the resource-limited flagship from `docker-compose.yml`  |
+| `make pprof-web`        | Opens the pprof web UI on a running haven with `PPROF_ADDR` set |
+| `make pprof-capture`    | Saves a snapshot of a profile to `.pprof/`                      |
+| `make pprof-diff`       | Compares the two newest snapshots                               |
 
 The pprof targets use the heap profile by default, pick another with `PPROF_PROFILE=allocs`, `goroutine`, `profile` (30s CPU) and so on.
 
@@ -270,7 +271,7 @@ Pull requests must update [`CHANGELOG.md`](CHANGELOG.md), the CI checks for it.
 - [x] RTSP Muxing
 - [x] Move from RTSP to HLS due to VRC not implementing RTSP return codes
 - [x] Web interface for monitoring
-- [ ] Configurable passphrase and stream ID on the flagship
+- [x] Configurable passphrase and stream ID
 - [ ] Add UPnP for easier usability by normal users
 - [ ] Allow only a certain amount of viewers per node
 - [ ] Syncing between SRT-Servers and HLS clients

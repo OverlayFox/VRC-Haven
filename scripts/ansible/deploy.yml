@@ -1,4 +1,4 @@
-# Deploys escorts on Linode, one Nanode 1GB per region, all pulling from an existing flagship.
+# Deploys escorts on Linode, one Linode 2GB per region, all pulling from an existing flagship.
 #
 #   ansible-playbook deploy.yml --ask-vault-pass -e linode_user=<linode username> \
 #     -e escort_regions=au-mel,eu-central -e flagship_ip=203.0.113.7 -e flagship_application=<stream id>
@@ -50,7 +50,7 @@
         region: "{{ item }}"
         type: "{{ linode_type }}"
         image: "{{ linode_image }}"
-        authorized_users: ["{{ linode_user }}"]
+        authorized_keys: ["{{ lookup('ansible.builtin.file', ssh_public_key_file | expanduser) }}"]
         tags:
           - vrc-haven
           - vrc-haven-{{ haven_name }}

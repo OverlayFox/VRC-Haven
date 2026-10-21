@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - added HLS debug logging for viewers, segments and stalls
 - added a dashboard on port 80 (`DASHBOARD_PORT`) with a JSON API at `/api/status`: the flagship shows its publisher, escorts with location and SRT stats, readers redirected per escort and HLS clients with their status, escorts show their upstream link and HLS clients
 - added optional basic auth for the dashboard via `DASHBOARD_USER` and `DASHBOARD_PASSWORD`
+- the passphrase and stream ID are set with `HAVEN_PASSPHRASE` and `HAVEN_STREAM_ID` instead of being hardcoded
+- escorts read the flagship's SRT address from `FLAGSHIP_SRT_ADDR` and their HLS port from `HLS_PORT`
+- added Ansible playbooks in `scripts/ansible` that deploy escorts to Linode
 - escorts advertise the address they serve HLS on (`HLS_PUBLIC_ADDR`, defaults to their IP and HLS port)
 - the HLS playlist survives a publisher reconnect: players keep polling the held playlist while the publisher is gone, and a publisher back within 30 seconds continues it after an `#EXT-X-DISCONTINUITY` with the same segment names and an increasing media sequence
 - a publisher that does not reconnect within 30 seconds ends the HLS playlist with `#EXT-X-ENDLIST`, so players report the stream as ended instead of freezing, the ended playlist is discarded 10 seconds later
@@ -58,3 +61,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fixed escort connections to the flagship never closing their SRT socket
 - fixed the demuxer goroutine waiting forever after its input stops
 - fixed the SRT server hanging on shutdown when connection requests were still queued
+- fixed escorts retrying a failed connection to the flagship every 100ms forever, the delay now doubles up to 10 seconds

@@ -1,6 +1,6 @@
 # ansible-galaxy collection install -r requirements.yml
 # linode.cloud also needs Python packages on the machine running the playbook:
-#   pip install linode_api4 polling ansible-specdoc
+#   pip install linode_api4 polling ansible-specdoc   (inside the .venv, see README.md)
 collections:
   - name: linode.cloud
     version: ">=0.51.0"
