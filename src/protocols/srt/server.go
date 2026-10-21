@@ -14,9 +14,7 @@ import (
 )
 
 const (
-	initialBackoff    = 100 * time.Millisecond
-	maxBackoff        = 30 * time.Second
-	backoffMultiplier = 2.0
+	initialBackoff = 100 * time.Millisecond
 )
 
 type Config struct {
@@ -76,7 +74,12 @@ func (s *server) Start() {
 				errCh <- err
 				return
 			}
-			acceptCh <- req
+			select {
+			case acceptCh <- req:
+			case <-s.ctx.Done():
+				req.Reject(gosrt.REJ_CLOSE)
+				return
+			}
 		}
 	})
 	s.logger.Info().Str("address", s.config.Address).Int("port", s.config.Port).Msg("Started SRT listener")

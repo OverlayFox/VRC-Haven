@@ -17,6 +17,7 @@ var (
 	ErrOutOfRange   = errors.New("read out of bounds")
 	ErrNoSubscriber = errors.New("channel not subscribed")
 	ErrNoPayload    = errors.New("no payload at position")
+	ErrClosed       = errors.New("buffer closed")
 )
 
 type circularBuffer struct {
@@ -116,11 +117,26 @@ func (cb *circularBuffer) peek(pos int) (types.Frame, error) {
 	return frame, nil
 }
 
+func (cb *circularBuffer) newestKeyFramePos() int {
+	cb.mtx.RLock()
+	defer cb.mtx.RUnlock()
+
+	return (cb.writePos - 1 + cb.cap) % cb.cap
+}
+
 // ReadFromPos reads frames from the circular buffer starting from the given position.
 func (cb *circularBuffer) ReadFromPos(startPos int, upstreamCtx context.Context) (chan types.Frame, error) {
 	if startPos < 0 || startPos > cb.cap {
 		return nil, fmt.Errorf("%w: '%d'", ErrOutOfRange, startPos)
 	}
+
+	// Holding the lock keeps Close from waiting on the WaitGroup before this subscriber is added to it
+	cb.mtx.RLock()
+	defer cb.mtx.RUnlock()
+	if cb.ctx.Err() != nil {
+		return nil, ErrClosed
+	}
+
 	ch := make(chan types.Frame, EgressChCap)
 	liveCh := make(chan types.Frame, LiveChCap)
 	cb.wg.Go(func() {
@@ -198,8 +214,11 @@ func (cb *circularBuffer) ReadFromPos(startPos int, upstreamCtx context.Context)
 }
 
 func (cb *circularBuffer) Close() {
+	cb.mtx.Lock()
 	cb.cancel()
+	cb.mtx.Unlock()
 	cb.wg.Wait()
+
 	cb.mtx.Lock()
 	defer cb.mtx.Unlock()
 	cb.subMtx.Lock()
@@ -209,9 +228,10 @@ func (cb *circularBuffer) Close() {
 		delete(cb.subs, ch)
 		CloseAndDrain(liveCh)
 	}
-	for _, frame := range cb.frames {
+	for i, frame := range cb.frames {
 		if frame != nil {
 			frame.Decommission()
+			cb.frames[i] = nil
 		}
 	}
 }

@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - cleaned up logging: no more per-request, per-segment and per-frame lines, every HLS player line carries `client_ip` and `viewer_id`, consistent `node`/`component`/`module` fields, full timestamps, no colors when not writing to a terminal, `LOG_LEVEL` and `LOG_FORMAT` environment variables
 - HLS redirect logs no longer include the stream passphrase
 - the escort SRT stream ID is now `escort:<stream id>:<hls address>`, escorts without an HLS address are rejected
+- an HLS connection now closes itself when its buffer subscription ends, so the next request starts a fresh one instead of serving a frozen playlist
+- packets are no longer cloned per escort, gosrt copies the payload itself
 
 ### Removed
 
@@ -40,3 +42,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fixed every new HLS muxer starting its cleanup goroutine twice
 - fixed SRT packets being dropped when gosrt delivers a burst faster than the haven reads it, the SRT reader now waits instead of dropping
 - fixed the flagship disconnecting an escort when its SRT write queue is momentarily full
+- fixed a crash when a publisher disconnects while frames are still being written into its buffer, the publisher's pipeline now stops before the buffer is closed
+- fixed data races on the haven's publisher, demuxer and buffer fields
+- fixed a data race and a crash in HLS metadata extraction when the stream ends before SPS/PPS and the audio config arrive
+- fixed HLS connections hanging on close while their frame channels were full
+- fixed a data race on the buffer's write position and crashes when a viewer subscribes while the buffer closes
+- fixed the keyframe index growing for as long as a publisher stays connected
+- fixed viewers that failed to subscribe staying in the haven and leaking their context and partial subscription
+- fixed rejected SRT handshakes leaking a context
+- fixed escort connections to the flagship never closing their SRT socket
+- fixed the demuxer goroutine waiting forever after its input stops
+- fixed the SRT server hanging on shutdown when connection requests were still queued

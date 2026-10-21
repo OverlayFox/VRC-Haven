@@ -174,7 +174,10 @@ func (h *Haven) addEscort(conn types.ConnectionSRT) error {
 }
 
 func (h *Haven) addViewer(conn types.ConnectionRTSP) error {
-	if !h.PublisherIsReady() {
+	h.publisherMtx.RLock()
+	buf := h.buffer
+	h.publisherMtx.RUnlock()
+	if buf == nil {
 		return types.ErrPublisherNotFound
 	}
 
@@ -185,15 +188,17 @@ func (h *Haven) addViewer(conn types.ConnectionRTSP) error {
 	viewerLogger := conn.GetLogger()
 	viewerLogger.Debug().Msg("Added viewer to haven")
 
-	bufferOutput, err := h.buffer.Subscribe(conn.GetCtx(), -2*time.Second)
+	bufferOutput, err := buf.Subscribe(conn.GetCtx(), -2*time.Second)
 	if err != nil {
 		viewerLogger.Error().Err(err).Msg("Failed to subscribe viewer to buffer")
+		h.removeViewer(conn)
 		return err
 	}
 
 	err = conn.Write(bufferOutput)
 	if err != nil {
 		viewerLogger.Error().Err(err).Msg("Failed to write buffer output to viewer")
+		h.removeViewer(conn)
 		return err
 	}
 
@@ -206,19 +211,22 @@ func (h *Haven) addViewer(conn types.ConnectionRTSP) error {
 
 		case <-conn.GetCtx().Done():
 			viewerLogger.Debug().Msg("Viewer context done, removing viewer from haven")
-
-			h.viewersMtx.Lock()
-			defer h.viewersMtx.Unlock()
-			for addr, v := range h.viewers {
-				if v == conn {
-					delete(h.viewers, addr)
-					break
-				}
-			}
+			h.removeViewer(conn)
 		}
 	})
 
 	return nil
+}
+
+func (h *Haven) removeViewer(conn types.ConnectionRTSP) {
+	h.viewersMtx.Lock()
+	defer h.viewersMtx.Unlock()
+	for addr, v := range h.viewers {
+		if v == conn {
+			delete(h.viewers, addr)
+			break
+		}
+	}
 }
 
 func (h *Haven) addPublisher(conn types.ConnectionSRT) error {
@@ -231,20 +239,25 @@ func (h *Haven) addPublisher(conn types.ConnectionSRT) error {
 	h.publisher = conn
 	h.initPublisher()
 
+	// pipeline tracks the goroutines moving this publisher's packets into the buffer, which must stop before the buffer is closed
+	pipeline := &sync.WaitGroup{}
+	demuxer, buf := h.demuxer, h.buffer
+	h.readFromPublisher(pipeline, conn, demuxer, buf)
+
 	// Monitor the flagship's context and remove it from the map when it is done
 	// Closes the escorts as well
 	h.wg.Go(func() {
 		select {
 		case <-h.ctx.Done():
 			h.logger.Debug().Msg("Haven context done, closing publisher")
-			h.publisher.Close()
+			conn.Close()
+			pipeline.Wait()
 
-		case <-h.publisher.GetCtx().Done():
+		case <-conn.GetCtx().Done():
 			h.logger.Debug().Msg("Publisher context done, removing publisher from haven")
-			h.clearPublisher()
+			h.clearPublisher(pipeline, demuxer)
 		}
 	})
-	h.readFromPublisher()
 
 	return nil
 }
@@ -270,7 +283,10 @@ func (h *Haven) initPublisher() {
 	})
 }
 
-func (h *Haven) clearPublisher() {
+func (h *Haven) clearPublisher(pipeline *sync.WaitGroup, demuxer *multiplexer.MpegTsDemuxer) {
+	demuxer.Close()
+	pipeline.Wait()
+
 	h.publisherMtx.Lock()
 	defer h.publisherMtx.Unlock()
 
@@ -296,7 +312,6 @@ func (h *Haven) clearPublisher() {
 	h.buffer.Close()
 	h.buffer = nil
 
-	h.demuxer.Close()
 	h.demuxer = nil
 }
 
@@ -306,8 +321,7 @@ func (h *Haven) broadcastToEscorts(packet packet.Packet) []error {
 
 	var errs []error
 	for _, escort := range h.escorts {
-		escortClone := packet.Clone()
-		err := escort.WritePacket(escortClone)
+		err := escort.WritePacket(packet)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -315,8 +329,8 @@ func (h *Haven) broadcastToEscorts(packet packet.Packet) []error {
 	return errs
 }
 
-func (h *Haven) demuxerToBufferWrite(demuxerEgress <-chan types.Frame, demuxerErrCh <-chan error) {
-	h.wg.Go(func() {
+func (h *Haven) demuxerToBufferWrite(pipeline *sync.WaitGroup, buf types.Buffer, demuxerEgress <-chan types.Frame, demuxerErrCh <-chan error) {
+	pipeline.Go(func() {
 		for {
 			select {
 			case <-h.ctx.Done():
@@ -335,7 +349,7 @@ func (h *Haven) demuxerToBufferWrite(demuxerEgress <-chan types.Frame, demuxerEr
 					return
 				}
 
-				err := h.buffer.Write(frame.Clone())
+				err := buf.Write(frame.Clone())
 				if err != nil {
 					h.logger.Error().Err(err).Msg("Demuxer egress to buffer write error")
 				}
@@ -345,18 +359,22 @@ func (h *Haven) demuxerToBufferWrite(demuxerEgress <-chan types.Frame, demuxerEr
 	})
 }
 
-func (h *Haven) readFromPublisher() {
-	h.wg.Go(func() {
+// readFromPublisher takes the publisher, demuxer and buffer as arguments, since the haven's fields are cleared while the pipeline shuts down.
+func (h *Haven) readFromPublisher(pipeline *sync.WaitGroup, publisher types.ConnectionSRT, demuxer *multiplexer.MpegTsDemuxer, buf types.Buffer) {
+	pipeline.Go(func() {
 		demuxerPktCh := make(chan packet.Packet, demuxerInputCap)
-		h.demuxerToBufferWrite(h.demuxer.StartDemuxer(demuxerPktCh))
+		frameCh, errCh := demuxer.StartDemuxer(demuxerPktCh)
+		h.demuxerToBufferWrite(pipeline, buf, frameCh, errCh)
 
 		droppedLogger := h.logger.Sample(&zerolog.BurstSampler{Burst: 1, Period: 5 * time.Second})
 		var droppedPackets uint64
 
-		publisherEgress := h.publisher.Read()
+		publisherEgress := publisher.Read()
 		for {
 			select {
 			case <-h.ctx.Done():
+				return
+			case <-publisher.GetCtx().Done():
 				return
 			case p, ok := <-publisherEgress:
 				if !ok {
