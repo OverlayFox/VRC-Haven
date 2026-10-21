@@ -205,7 +205,7 @@ func (t *viewerTracker) check(now time.Time, info playlistInfo, hasInfo bool) {
 	}
 }
 
-// monitor periodically reports whether the playlist keeps advancing, where media stopped if it does not, and what viewers do.
+// monitor periodically reports whether this publisher keeps the playlist advancing, and where media stopped if it does not.
 func (c *Connection) monitor() {
 	ticker := time.NewTicker(monitorInterval)
 	defer ticker.Stop()
@@ -224,10 +224,8 @@ func (c *Connection) monitor() {
 
 		c.mtx.RLock()
 		health := c.seg.streamHealth()
-		info, hasInfo := c.seg.playlistInfo()
 		c.mtx.RUnlock()
-
-		c.viewers.check(now, info, hasInfo)
+		info, hasInfo := c.stream.info()
 
 		if hasInfo {
 			sinceSegment := now.Sub(health.lastSegmentAt)
@@ -263,7 +261,7 @@ func (c *Connection) logStats(health, last streamHealth, elapsed time.Duration, 
 		Uint64("segments_added", health.segments-last.segments).
 		Uint64("newest_seq", info.newestSeq).
 		Int("target_duration", info.targetDuration).
-		Int("viewers", c.viewers.count())
+		Int("viewers", c.stream.viewers.count())
 
 	if last.videoFrames > 0 && health.videoFrames > last.videoFrames {
 		// 1.0 means media arrives in real time, below that players slowly run out of buffer

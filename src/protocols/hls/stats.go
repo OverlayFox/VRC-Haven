@@ -29,8 +29,9 @@ type EscortRedirect struct {
 
 // Stats is a snapshot of the stream served over HLS and the players fetching it.
 type Stats struct {
-	Active             bool          `json:"active"` // a muxer exists, created by the first viewer
-	Primed             bool          `json:"primed"` // the playlist is being served
+	Active             bool          `json:"active"` // a publisher feeds the playlist, started by the first viewer request
+	Primed             bool          `json:"primed"` // the playlist is being served, also while it waits for the publisher to reconnect
+	Ended              bool          `json:"ended"`  // the publisher did not reconnect in time and the playlist has EXT-X-ENDLIST
 	TargetDurationS    int           `json:"target_duration_s"`
 	NewestSeq          uint64        `json:"newest_seq"`
 	SinceLastSegmentMs *int64        `json:"since_last_segment_ms"`
@@ -72,37 +73,31 @@ func (s *Server) RedirectStats() RedirectStats {
 // Stats returns the state of the HLS stream and its viewers.
 func (s *Server) Stats() Stats {
 	s.connMtx.Lock()
-	conn := s.connection
+	active := s.connection != nil
 	s.connMtx.Unlock()
 
-	if conn == nil {
-		return Stats{Viewers: []ViewerStats{}}
-	}
-	return conn.stats(time.Now())
+	return s.stream.stats(time.Now(), active)
 }
 
-func (c *Connection) stats(now time.Time) Stats {
-	stats := Stats{Active: true}
+func (s *liveStream) stats(now time.Time, active bool) Stats {
+	stats := Stats{Active: active}
+
+	s.mtx.RLock()
 	select {
-	case <-c.ready:
+	case <-s.ready:
 		stats.Primed = true
 	default:
 	}
-
-	var info playlistInfo
-	var hasInfo bool
-	c.mtx.RLock()
-	if c.seg != nil {
-		info, hasInfo = c.seg.playlistInfo()
-		stats.SinceLastSegmentMs = msSince(now, c.seg.streamHealth().lastSegmentAt)
-	}
-	c.mtx.RUnlock()
+	stats.Ended = s.playlist.ended
+	stats.SinceLastSegmentMs = msSince(now, s.lastSegmentAt)
+	info, hasInfo := s.playlist.info()
+	s.mtx.RUnlock()
 
 	if hasInfo {
 		stats.TargetDurationS = info.targetDuration
 		stats.NewestSeq = info.newestSeq
 	}
-	stats.Viewers = c.viewers.snapshot(now, info, hasInfo)
+	stats.Viewers = s.viewers.snapshot(now, info, hasInfo)
 	return stats
 }
 
