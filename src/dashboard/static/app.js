@@ -182,11 +182,13 @@ function renderHLS(data) {
   for (const v of data.viewers) counts[v.status] = (counts[v.status] || 0) + 1;
 
   let stream = ["Inactive", "muted"];
-  if (data.primed) stream = ["Live", "good"];
+  if (data.ended) stream = ["Ended", "muted"];
+  else if (data.primed && !data.active) stream = ["Waiting for publisher", "info"];
+  else if (data.primed) stream = ["Live", "good"];
   else if (data.active) stream = ["Priming", "info"];
   const lastSegment = data.since_last_segment_ms;
   // Same threshold as stallTimeout in the HLS diagnostics
-  const stalled = data.primed && lastSegment !== null && lastSegment > Math.max(5000, 3 * data.target_duration_s * 1000);
+  const stalled = data.active && data.primed && lastSegment !== null && lastSegment > Math.max(5000, 3 * data.target_duration_s * 1000);
   if (stalled) stream = ["Stalled", "bad"];
 
   const rows = data.viewers.map((v) =>
@@ -214,7 +216,7 @@ function renderHLS(data) {
       ["Starting", counts.starting, "info"],
       ["Stuck", counts.stuck, counts.stuck ? "bad" : ""],
       ["Idle", counts.idle, "muted"],
-      ["Last segment", data.active ? fmtDuration(lastSegment) + (lastSegment === null ? "" : " ago") : "-"],
+      ["Last segment", data.active || data.primed ? fmtDuration(lastSegment) + (lastSegment === null ? "" : " ago") : "-"],
     ]),
     table(
       ["Status", "Client", "Watched", "Last segment", "Behind live", "Playlists", "Segments", "Not found", "User agent"],

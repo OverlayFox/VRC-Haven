@@ -62,12 +62,9 @@ type segmenter struct {
 	// sampledLogger is for problems that can repeat on every frame
 	sampledLogger zerolog.Logger
 	mux           *tsMuxer
-	playlist      *livePlaylist
-
-	nextSeq uint64
+	stream        *liveStream
 
 	current      *bytes.Buffer
-	currentSeq   uint64
 	segmentStart time.Duration
 	started      bool
 
@@ -81,50 +78,24 @@ type segmenter struct {
 	droppedAudio int
 }
 
-func newSegmenter(logger zerolog.Logger, mux *tsMuxer, playlist *livePlaylist) *segmenter {
+func newSegmenter(logger zerolog.Logger, mux *tsMuxer, stream *liveStream) *segmenter {
 	return &segmenter{
 		logger:        logger,
 		sampledLogger: logger.Sample(&zerolog.BurstSampler{Burst: 5, Period: 10 * time.Second}),
 		mux:           mux,
-		playlist:      playlist,
+		stream:        stream,
 		videoDTS:      timestampTracker{track: "video"},
 		audioPTS:      timestampTracker{track: "audio"},
 	}
-}
-
-func (s *segmenter) ready() bool {
-	return s.playlist.ready()
-}
-
-func (s *segmenter) playlistSnapshot() []byte {
-	return s.playlist.snapshot()
-}
-
-func (s *segmenter) playlistInfo() (playlistInfo, bool) {
-	return s.playlist.info()
 }
 
 func (s *segmenter) streamHealth() streamHealth {
 	return s.health
 }
 
-func (s *segmenter) parseSegmentFilename(filename string) (uint64, bool) {
-	return s.playlist.parseFilename(filename)
-}
-
-func (s *segmenter) segmentByFilename(filename string) ([]byte, bool) {
-	seq, ok := s.playlist.parseFilename(filename)
-	if !ok {
-		return nil, false
-	}
-	return s.playlist.segment(seq)
-}
-
 func (s *segmenter) startSegment(pts time.Duration) {
 	s.current = &bytes.Buffer{}
 	s.mux.setOutput(s.current)
-	s.currentSeq = s.nextSeq
-	s.nextSeq++
 	s.segmentStart = pts
 	s.started = true
 	s.stats = segmentStats{}
@@ -138,20 +109,16 @@ func (s *segmenter) finishSegment(endPTS time.Duration) {
 			Msg("Encoder keyframe interval is long, HLS latency will be high. Set the keyframe interval to 1s for lowest latency")
 	}
 
-	s.playlist.addSegment(segment{
-		seq:      s.currentSeq,
-		duration: duration,
-		data:     s.current.Bytes(),
-	})
+	seq := s.stream.addSegment(duration, s.current.Bytes())
 	s.health.lastSegmentAt = time.Now()
 	s.health.segments++
 
 	if s.stats.audioFrames == 0 {
-		s.sampledLogger.Warn().Uint64("seq", s.currentSeq).Msg("Segment has no audio, players may stall waiting for it")
+		s.sampledLogger.Warn().Uint64("seq", seq).Msg("Segment has no audio, players may stall waiting for it")
 	} else {
 		avOffset := s.stats.firstAudioPTS - s.stats.firstVideoPTS
 		if avOffset.Abs() > avOffsetWarning {
-			s.sampledLogger.Warn().Uint64("seq", s.currentSeq).Dur("av_offset", avOffset).
+			s.sampledLogger.Warn().Uint64("seq", seq).Dur("av_offset", avOffset).
 				Msg("Audio and video timestamps are far apart, players may stall waiting for them to line up")
 		}
 	}

@@ -28,6 +28,8 @@ type Server struct {
 
 	isFlagship bool
 
+	// stream outlives connections, so players keep one playlist across publisher reconnects
+	stream     *liveStream
 	connection *Connection
 	connMtx    sync.Mutex
 
@@ -46,13 +48,16 @@ func New(upstreamCtx context.Context, logger zerolog.Logger, config Config, have
 	}
 
 	ctx, cancel := context.WithCancel(upstreamCtx)
+	logger = logger.With().Str("component", "hls").Logger()
 	s := &Server{
-		logger: logger.With().Str("component", "hls").Logger(),
+		logger: logger,
 		config: config,
 
 		haven:      haven,
 		locator:    locator,
 		isFlagship: config.IsFlagship,
+
+		stream: newLiveStream(logger),
 
 		redirects: make(map[string]uint64),
 
@@ -74,6 +79,7 @@ func (s *Server) Dial(address, streamID, passphrase string) error {
 }
 
 func (s *Server) Start() {
+	s.wg.Go(s.monitor)
 	s.wg.Go(func() {
 		if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.logger.Error().Err(err).Msg("HLS server failed to start")
@@ -235,32 +241,63 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.connMtx.Lock()
-	if s.connection == nil {
-		logClient(s.logger.Info(), r).Msg("First HLS viewer connected, priming stream muxer")
-		conn := NewConnection(s.ctx, s.logger, location)
-		if err := s.haven.AddConnection(conn); err != nil {
-			s.connMtx.Unlock()
-			conn.Close() // releases its context and any goroutines a partial subscription started
-			logClient(s.logger.Error(), r).Err(err).Msg("Failed to hook HLS connection to stream haven")
-			http.Error(w, "Failed to initialize stream", http.StatusInternalServerError)
-			return
-		}
-		s.connection = conn
-		s.wg.Go(func() {
-			<-conn.GetCtx().Done()
-			s.connMtx.Lock()
-			if s.connection == conn {
-				s.connection = nil
-			}
-			s.connMtx.Unlock()
-		})
+	conn := s.feedStream(r, location)
+	if conn == nil {
+		// No publisher, players still get the playlist held for it to reconnect
+		s.stream.handleHTTP(w, r, nil)
+		return
 	}
-	conn := s.connection
-	s.connMtx.Unlock()
-
-	// Push the HLS request down to the connection's playlist/segment handler
 	conn.HandleHTTP(w, r)
+}
+
+// feedStream returns the connection feeding the stream from the publisher, starting one if needed. It returns nil while no publisher is live.
+func (s *Server) feedStream(r *http.Request, location types.Location) *Connection {
+	s.connMtx.Lock()
+	defer s.connMtx.Unlock()
+
+	if s.connection != nil {
+		return s.connection
+	}
+
+	conn := NewConnection(s.ctx, s.logger, location, s.stream)
+	if err := s.haven.AddConnection(conn); err != nil {
+		conn.Close() // releases its context and any goroutines a partial subscription started
+		if !errors.Is(err, types.ErrPublisherNotFound) {
+			logClient(s.logger.Error(), r).Err(err).Msg("Failed to hook HLS connection to stream haven")
+		}
+		return nil
+	}
+	logClient(s.logger.Info(), r).Msg("Started feeding the HLS stream from the publisher")
+	s.connection = conn
+
+	s.wg.Go(func() {
+		<-conn.GetCtx().Done()
+		// No segment of this publisher may follow the next publisher's discontinuity
+		conn.wg.Wait()
+		s.stream.endFeed()
+
+		s.connMtx.Lock()
+		if s.connection == conn {
+			s.connection = nil
+		}
+		s.connMtx.Unlock()
+	})
+	return conn
+}
+
+// monitor ends the playlist once the publisher does not come back and reports what viewers do, also while no publisher is live.
+func (s *Server) monitor() {
+	ticker := time.NewTicker(monitorInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case now := <-ticker.C:
+			s.stream.tick(now)
+		}
+	}
 }
 
 func (s *Server) tryRedirectToEscort(w http.ResponseWriter, r *http.Request) bool {

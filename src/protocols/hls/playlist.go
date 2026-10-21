@@ -22,6 +22,8 @@ type segment struct {
 	seq      uint64
 	duration time.Duration
 	data     []byte
+
+	discontinuity bool
 }
 
 type playlistInfo struct {
@@ -38,6 +40,11 @@ type livePlaylist struct {
 	targetDuration int
 	rendered       []byte
 	listed         int
+
+	nextSeq                uint64
+	pendingDiscontinuity   bool
+	droppedDiscontinuities uint64
+	ended                  bool
 }
 
 // newLivePlaylist starts EXT-X-MEDIA-SEQUENCE at 0. Media Foundation (VRChat on PC) accepts the stream but never plays it with a large sequence such as Unix time.
@@ -65,7 +72,16 @@ func (p *livePlaylist) parseFilename(filename string) (uint64, bool) {
 	return seq, err == nil
 }
 
-func (p *livePlaylist) addSegment(seg segment) {
+// addSegment appends a segment and returns the sequence it was given.
+func (p *livePlaylist) addSegment(duration time.Duration, data []byte) uint64 {
+	seg := segment{
+		seq:           p.nextSeq,
+		duration:      duration,
+		data:          data,
+		discontinuity: p.pendingDiscontinuity,
+	}
+	p.nextSeq++
+	p.pendingDiscontinuity = false
 	p.segments = append(p.segments, seg)
 
 	if td := max(1, int(math.Round(seg.duration.Seconds()))); td > p.targetDuration {
@@ -74,11 +90,30 @@ func (p *livePlaylist) addSegment(seg segment) {
 
 	p.listed = p.listedCount()
 	if excess := len(p.segments) - 2*p.listed; excess > 0 {
+		p.droppedDiscontinuities += countDiscontinuities(p.segments[:excess])
 		clear(p.segments[:excess])
 		p.segments = p.segments[excess:]
 	}
 
-	p.rendered = p.render(p.segments[len(p.segments)-p.listed:])
+	p.render()
+	return seg.seq
+}
+
+// markDiscontinuity flags the next segment as the start of a new publisher's media.
+func (p *livePlaylist) markDiscontinuity() bool {
+	if len(p.segments) == 0 {
+		return false
+	}
+	p.pendingDiscontinuity = true
+	return true
+}
+
+// end appends EXT-X-ENDLIST, after which players play out what is listed and report the stream as ended. The playlist must not change afterwards.
+func (p *livePlaylist) end() {
+	p.ended = true
+	if len(p.segments) > 0 {
+		p.render()
+	}
 }
 
 func (p *livePlaylist) info() (playlistInfo, bool) {
@@ -110,17 +145,30 @@ func (p *livePlaylist) listedCount() int {
 	return count
 }
 
-func (p *livePlaylist) render(listed []segment) []byte {
+func (p *livePlaylist) render() {
+	unlisted := p.segments[:len(p.segments)-p.listed]
+	listed := p.segments[len(p.segments)-p.listed:]
+
 	var b bytes.Buffer
 	b.WriteString("#EXTM3U\n")
 	b.WriteString("#EXT-X-VERSION:3\n") // lowest version allowing decimal EXTINF durations
 	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", p.targetDuration)
 	fmt.Fprintf(&b, "#EXT-X-MEDIA-SEQUENCE:%d\n", listed[0].seq)
+	// Omitted until a discontinuity slid out of the window, so a playlist without reconnects stays as minimal as before
+	if discontinuitySeq := p.droppedDiscontinuities + countDiscontinuities(unlisted); discontinuitySeq > 0 {
+		fmt.Fprintf(&b, "#EXT-X-DISCONTINUITY-SEQUENCE:%d\n", discontinuitySeq)
+	}
 	b.WriteString("#EXT-X-INDEPENDENT-SEGMENTS\n")
 	for _, seg := range listed {
+		if seg.discontinuity {
+			b.WriteString("#EXT-X-DISCONTINUITY\n")
+		}
 		fmt.Fprintf(&b, "#EXTINF:%.3f,\n%s\n", seg.duration.Seconds(), p.filename(seg.seq))
 	}
-	return b.Bytes()
+	if p.ended {
+		b.WriteString("#EXT-X-ENDLIST\n")
+	}
+	p.rendered = b.Bytes()
 }
 
 func (p *livePlaylist) ready() bool {
@@ -128,7 +176,7 @@ func (p *livePlaylist) ready() bool {
 }
 
 // snapshot returns the rendered playlist. The slice is never mutated afterwards,
-// so it may be written to clients after releasing the connection lock.
+// so it may be written to clients after releasing the stream lock.
 func (p *livePlaylist) snapshot() []byte {
 	return p.rendered
 }
@@ -143,4 +191,14 @@ func (p *livePlaylist) segment(seq uint64) ([]byte, bool) {
 		return nil, false
 	}
 	return p.segments[idx].data, true
+}
+
+func countDiscontinuities(segments []segment) uint64 {
+	var n uint64
+	for _, seg := range segments {
+		if seg.discontinuity {
+			n++
+		}
+	}
+	return n
 }
