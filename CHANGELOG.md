@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- added pyroscope for profile
+- added a pprof server on `PPROF_ADDR` (off when empty) for `go tool pprof`
 - added HLS server and connection play out for last-mile stream instead of RTSP
 - added SRT-Pull for escorts
 - added HLS debug logging for viewers, segments and stalls

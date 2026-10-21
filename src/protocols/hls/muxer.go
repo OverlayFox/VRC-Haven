@@ -1,6 +1,7 @@
 package hls
 
 import (
+	"bytes"
 	"context"
 	"io"
 
@@ -68,13 +69,14 @@ func (m *tsMuxer) setOutput(w io.Writer) {
 }
 
 func (m *tsMuxer) writeVideoAccessUnit(nalus [][]byte, ptsTicks, dtsTicks int64, keyFrame bool) error {
-	// Keep the cached parameter sets current in case the encoder reconfigures mid-stream
+	// Keep the cached parameter sets current in case the encoder reconfigures mid-stream.
+	// They are copied since the NALUs point into the frame's payload, which does not outlive this call.
 	for _, nalu := range nalus {
 		switch nalu[0] & 0x1F {
 		case naluTypeSPS:
-			m.sps = nalu
+			m.sps = bytes.Clone(nalu)
 		case naluTypePPS:
-			m.pps = nalu
+			m.pps = bytes.Clone(nalu)
 		}
 	}
 

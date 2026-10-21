@@ -3,84 +3,41 @@ package buffer
 import (
 	"bytes"
 	"errors"
-	"sync"
 
 	"github.com/yapingcat/gomedia/go-codec"
 
 	"github.com/OverlayFox/VRC-Haven/src/types"
 )
 
-const (
-	// MaxPayloadSize is the initial pool buffer capacity. 64KB covers essentially all
-	// P/B frames and audio at normal bitrates; IDR frames that exceed it are still
-	// returned to the pool so they can be reused without re-growing on the next IDR.
-	MaxPayloadSize = 64 * 1024
-)
-
 var ErrEmptyPayload = errors.New("payload is empty")
 
+// muxFrame owns an exact-size copy of its payload.
+// Frames are not pooled: a shared pool hands buffers grown by IDR frames to small P-frames and audio frames,
+// so every frame held in the ring buffers slowly ratchets up to the size of the largest IDR.
 type muxFrame struct {
 	hdr     types.FrameHeader
-	payload *bytes.Buffer
+	payload []byte
 }
-
-type bufPool struct {
-	pool sync.Pool
-}
-
-func newPool() *bufPool {
-	return &bufPool{
-		pool: sync.Pool{
-			New: func() any {
-				return bytes.NewBuffer(make([]byte, 0, MaxPayloadSize))
-			},
-		},
-	}
-}
-
-func (p *bufPool) Get() *bytes.Buffer {
-	b, ok := p.pool.Get().(*bytes.Buffer)
-	if !ok {
-		return bytes.NewBuffer(make([]byte, 0, MaxPayloadSize))
-	}
-	return b
-}
-
-func (p *bufPool) Put(b *bytes.Buffer) {
-	b.Reset()
-	p.pool.Put(b)
-}
-
-var payloadPool *bufPool = newPool()
 
 func NewFrameFromData(header types.FrameHeader, data []byte) (types.Frame, error) {
 	if len(data) == 0 {
 		return nil, ErrEmptyPayload
 	}
-	f := &muxFrame{
+	return &muxFrame{
 		hdr:     header,
-		payload: payloadPool.Get(),
-	}
-	f.payload.Write(data)
-	return f, nil
+		payload: bytes.Clone(data),
+	}, nil
 }
 
 func (f *muxFrame) Decommission() {
-	if f.payload == nil {
-		return
-	}
-	payloadPool.Put(f.payload)
 	f.payload = nil
 }
 
 func (f *muxFrame) Clone() types.Frame {
-	clone := &muxFrame{}
-	clone.hdr = f.hdr
-	clone.payload = payloadPool.Get()
-	if f.payload != nil {
-		clone.payload.Write(f.payload.Bytes())
+	return &muxFrame{
+		hdr:     f.hdr,
+		payload: bytes.Clone(f.payload),
 	}
-	return clone
 }
 
 func (f *muxFrame) Header() *types.FrameHeader {
@@ -88,16 +45,15 @@ func (f *muxFrame) Header() *types.FrameHeader {
 }
 
 func (f *muxFrame) SetData(data []byte) {
-	f.payload.Reset()
-	f.payload.Write(data)
+	f.payload = bytes.Clone(data)
 }
 
 func (f *muxFrame) Data() []byte {
-	return f.payload.Bytes()
+	return f.payload
 }
 
 func (f *muxFrame) Len() uint64 {
-	return uint64(f.payload.Len()) //nolint:gosec // Buffer.Len() is always non-negative
+	return uint64(len(f.payload))
 }
 
 func (f *muxFrame) IsKeyFrame() bool {

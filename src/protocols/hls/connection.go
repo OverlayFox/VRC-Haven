@@ -264,9 +264,8 @@ func (c *Connection) writeH264(frame types.Frame) error {
 		if len(nalu) == 0 {
 			return true
 		}
-		naluCopy := make([]byte, len(nalu))
-		copy(naluCopy, nalu)
-		nalus = append(nalus, naluCopy)
+		// No copy needed, the muxer copies the NALUs into the PES payload before the frame is decommissioned
+		nalus = append(nalus, nalu)
 		return true
 	})
 
