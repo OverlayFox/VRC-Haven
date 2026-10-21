@@ -12,18 +12,10 @@ import (
 )
 
 const (
-	playlistWaitTimeout = 7 * time.Second
-
-	// publisherReconnectGrace is how long players keep polling the unchanged playlist after the publisher left,
-	// so a quick reconnect continues it without players reloading. Afterwards it is ended with EXT-X-ENDLIST.
+	playlistWaitTimeout     = 7 * time.Second
 	publisherReconnectGrace = 30 * time.Second
-
-	// endedPlaylistRetention is how long an ended playlist is still served, so polling players see EXT-X-ENDLIST.
-	// Afterwards players loading the stream get an error to retry on, instead of replaying the stale segments.
-	endedPlaylistRetention = 10 * time.Second
-
-	// noStreamRetryAfter matches VRChat's limit of one video URL load per 5 seconds.
-	noStreamRetryAfter = "5"
+	endedPlaylistRetention  = 10 * time.Second
+	noStreamRetryAfter      = "5"
 )
 
 // liveStream is the playlist players follow. It outlives publishers: a reconnecting publisher continues it after an EXT-X-DISCONTINUITY,
