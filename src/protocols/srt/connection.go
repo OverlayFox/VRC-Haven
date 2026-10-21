@@ -18,8 +18,14 @@ import (
 	"github.com/OverlayFox/VRC-Haven/src/types"
 )
 
+// writeEOFGrace is how long writes may keep failing with [io.EOF] before the connection counts as closed.
+// gosrt also returns [io.EOF] when its write queue is momentarily full, which must not drop the peer.
+const writeEOFGrace = time.Second
+
 type connection struct {
 	logger zerolog.Logger
+	// writeDropLogger is for packets dropped while the write queue is full, which can repeat on every packet
+	writeDropLogger zerolog.Logger
 
 	config   goSrt.Config
 	server   types.ProtocolServer
@@ -32,6 +38,10 @@ type connection struct {
 	haven          types.Haven
 	location       types.Location
 	advertisedAddr string
+
+	// writeFailingSince is when writes started failing with io.EOF, zero while they succeed
+	writeFailingSince time.Time
+	writeDrops        uint64
 
 	wg     sync.WaitGroup
 	ctx    context.Context
@@ -60,6 +70,7 @@ func NewConnection(upstreamCtx context.Context, logger zerolog.Logger, haven typ
 		ctx:    ctx,
 		cancel: cancel,
 	}
+	c.writeDropLogger = newWriteDropLogger(c.logger)
 
 	return c, nil
 }
@@ -108,6 +119,7 @@ func NewConnectionFromRequest(upstreamCtx context.Context, logger zerolog.Logger
 		}
 		c.logger = c.logger.With().Str("hls_addr", c.advertisedAddr).Logger()
 	}
+	c.writeDropLogger = newWriteDropLogger(c.logger)
 
 	c.conn, err = connReq.Accept()
 	if err != nil {
@@ -178,20 +190,40 @@ func (c *connection) GetLogger() zerolog.Logger {
 	return c.logger
 }
 
+// WritePacket is not safe for concurrent use.
 func (c *connection) WritePacket(pkt packet.Packet) error {
+	select {
+	case <-c.ctx.Done():
+		return nil // already closing, the haven removes the connection shortly
+	default:
+	}
+
 	err := c.conn.WritePacket(pkt)
-	if err != nil {
-		if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "use of closed network connection") {
-			c.logger.Info().Err(err).Msg("SRT connection closed by peer or internally")
-			c.Close()
-			return err
+	if err == nil {
+		c.writeFailingSince = time.Time{}
+		return nil
+	}
+
+	if errors.Is(err, io.EOF) {
+		// A closed connection fails every write, a full write queue only until it drains
+		if c.writeFailingSince.IsZero() {
+			c.writeFailingSince = time.Now()
 		}
-		c.logger.Error().Err(err).Msg("SRT connection write error")
+		if time.Since(c.writeFailingSince) < writeEOFGrace {
+			c.writeDrops++
+			c.writeDropLogger.Warn().Uint64("dropped_total", c.writeDrops).Msg("SRT write queue full, dropping packet")
+			return nil
+		}
+	}
+
+	if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "use of closed network connection") {
+		c.logger.Info().Err(err).Msg("SRT connection closed by peer or internally")
 		c.Close()
 		return err
 	}
-
-	return nil
+	c.logger.Error().Err(err).Msg("SRT connection write error")
+	c.Close()
+	return err
 }
 
 func (c *connection) Read() chan packet.Packet {
@@ -235,9 +267,7 @@ func (c *connection) read() (chan packet.Packet, chan error) {
 	c.wg.Go(func() {
 		defer close(pktCh)
 		defer close(errCh)
-
-		dropLogger := c.logger.Sample(&zerolog.BurstSampler{Burst: 1, Period: 5 * time.Second})
-		var dropped uint64
+		waitLogger := c.logger.Sample(&zerolog.BurstSampler{Burst: 1, Period: 5 * time.Second})
 
 		for {
 			if err := c.conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
@@ -282,18 +312,23 @@ func (c *connection) read() (chan packet.Packet, chan error) {
 			case <-c.ctx.Done():
 				return
 			case pktCh <- pkt:
-			default:
-				select {
-				case <-c.ctx.Done():
-					return
-				default:
-					dropped++
-					dropLogger.Warn().Uint64("dropped_total", dropped).Msg("SRT packet channel full, dropping packet")
-				}
 				continue
+			default:
+			}
+
+			// Wait instead of dropping, gosrt's read queue holds the rest of a burst while the consumer catches up
+			waitLogger.Debug().Msg("SRT packet channel full, waiting for consumer")
+			select {
+			case <-c.ctx.Done():
+				return
+			case pktCh <- pkt:
 			}
 		}
 	})
 
 	return pktCh, errCh
+}
+
+func newWriteDropLogger(logger zerolog.Logger) zerolog.Logger {
+	return logger.Sample(&zerolog.BurstSampler{Burst: 1, Period: 5 * time.Second})
 }

@@ -98,13 +98,13 @@ func TestBasicAuth(t *testing.T) {
 func TestConfigFromEnv(t *testing.T) {
 	t.Setenv("DASHBOARD_PORT", "")
 	config, err := dashboard.ConfigFromEnv(dashboard.RoleEscort)
-	if err != nil || config.Port != 80 {
+	if err != nil || config.Port != 8080 {
 		t.Errorf("default config = %+v, %v", config, err)
 	}
 
-	t.Setenv("DASHBOARD_PORT", "8080")
+	t.Setenv("DASHBOARD_PORT", "4242")
 	config, err = dashboard.ConfigFromEnv(dashboard.RoleEscort)
-	if err != nil || config.Port != 8080 {
+	if err != nil || config.Port != 4242 {
 		t.Errorf("config with port = %+v, %v", config, err)
 	}
 
