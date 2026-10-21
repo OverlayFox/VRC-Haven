@@ -1,0 +1,40 @@
+# Resource-limited instance for finding where the haven breaks.
+#
+#   HAVEN_CPUS=0.5 HAVEN_MEM=128m docker compose up --build
+#   docker stats                                   # live CPU and memory against the limit
+#   docker compose --profile escort up --build     # also run an escort pulling from the flagship
+#
+# Values not set in the shell are read from .env, the app itself does not see .env inside the container.
+# Memory swap is pinned to the memory limit, so hitting the limit OOM-kills the container instead of swapping.
+
+services:
+  flagship:
+    build:
+      context: .
+      args:
+        TARGET: flagship
+    image: vrc-haven:flagship
+    # Matches the owner of ./GeoDatabase, the .mmdb file is only readable by its owner
+    user: "${HAVEN_UID:-1000}:${HAVEN_GID:-1000}"
+    cpus: ${HAVEN_CPUS:-1.0}
+    mem_limit: ${HAVEN_MEM:-256m}
+    memswap_limit: ${HAVEN_MEM:-256m}
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-}
+      MAX_MIND_LICENSE_KEY: ${MAX_MIND_LICENSE_KEY:-}
+      MAX_MIND_ACCOUNT_ID: ${MAX_MIND_ACCOUNT_ID:-}
+      DASHBOARD_PORT: 8080
+      DASHBOARD_USER: ${DASHBOARD_USER:-}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
+      # Go does not read the cgroup memory limit, set this a bit below HAVEN_MEM (e.g. 230MiB) to make the GC work before the OOM killer does
+      GOMEMLIMIT: ${HAVEN_GOMEMLIMIT:-}
+      PPROF_ADDR: 0.0.0.0:6060
+    volumes:
+      - ./GeoDatabase:/app/GeoDatabase
+    ports:
+      - "8554:8554/tcp" # HLS
+      - "8890:8890/udp" # SRT ingest
+      - "8080:8080/tcp" # dashboard
+      - "127.0.0.1:6060:6060/tcp" # pprof, host only
+    restart: "no"

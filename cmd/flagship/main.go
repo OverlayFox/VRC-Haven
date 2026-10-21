@@ -6,7 +6,6 @@ import (
 	"os/signal"
 	"time"
 
-	pyroscope "github.com/grafana/pyroscope-go"
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
 
@@ -14,30 +13,12 @@ import (
 	"github.com/OverlayFox/VRC-Haven/src/geo"
 	"github.com/OverlayFox/VRC-Haven/src/haven"
 	"github.com/OverlayFox/VRC-Haven/src/logging"
+	"github.com/OverlayFox/VRC-Haven/src/profiling"
 	"github.com/OverlayFox/VRC-Haven/src/protocols/hls"
 	"github.com/OverlayFox/VRC-Haven/src/protocols/srt"
 )
 
 var logger zerolog.Logger
-
-func startPyroscope(serverAddress string) {
-	logger.Info().Str("address", serverAddress).Msg("Starting Pyroscope profiler")
-	_, err := pyroscope.Start(pyroscope.Config{
-		ApplicationName: "vrc-stream-haven.flagship",
-		ServerAddress:   serverAddress,
-		ProfileTypes: []pyroscope.ProfileType{
-			pyroscope.ProfileCPU,
-			pyroscope.ProfileAllocObjects,
-			pyroscope.ProfileAllocSpace,
-			pyroscope.ProfileInuseObjects,
-			pyroscope.ProfileInuseSpace,
-			pyroscope.ProfileGoroutines,
-		},
-	})
-	if err != nil {
-		logger.Error().Err(err).Msg("Failed to start Pyroscope profiler")
-	}
-}
 
 func main() {
 	envErr := godotenv.Load()
@@ -47,10 +28,7 @@ func main() {
 	}
 	logger.Info().Msg("Starting in Flagship mode")
 
-	pyroscopeAddr := os.Getenv("PYROSCOPE_SERVER_ADDRESS")
-	if pyroscopeAddr != "" {
-		startPyroscope(pyroscopeAddr)
-	}
+	profiling.StartFromEnv(logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	geoConf := geo.Config{
