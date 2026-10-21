@@ -1,0 +1,56 @@
+# Deletes every escort tagged with this haven.
+#
+#   ansible-playbook destroy.yml --ask-vault-pass -e linode_user=<linode username> [-e haven_name=haven]
+#
+# Asks before deleting, -e confirm=yes skips the prompt.
+
+- name: Destroy a haven
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - "credentials/{{ linode_user }}.yml"
+  vars:
+    haven_tag: vrc-haven-{{ haven_name }}
+  tasks:
+    - name: Find the haven's instances
+      linode.cloud.instance_list:
+        api_token: "{{ linode_token }}"
+        filters:
+          - name: tags
+            values: ["{{ haven_tag }}"]
+      register: found
+
+    - name: Keep only instances that carry the tag
+      ansible.builtin.set_fact:
+        doomed: "{{ found.instances | selectattr('tags', 'contains', haven_tag) | list }}"
+
+    - name: Confirm
+      ansible.builtin.pause:
+        prompt: >-
+          Delete {{ doomed | length }} instance(s): {{ doomed | map(attribute='label') | join(', ') }}?
+          Type yes to continue
+      register: answer
+      when: doomed | length > 0 and confirm | default('') != 'yes'
+
+    - name: Stop unless confirmed
+      ansible.builtin.meta: end_play
+      when: doomed | length == 0 or (answer.user_input | default(confirm) | default('')) != 'yes'
+
+    - name: Delete the instances
+      linode.cloud.instance:
+        api_token: "{{ linode_token }}"
+        label: "{{ item.label }}"
+        state: absent
+      loop: "{{ doomed }}"
+      loop_control:
+        label: "{{ item.label }}"
+
+    # Linode reuses addresses, a stale host key would make a later deploy refuse to connect
+    - name: Forget their host keys
+      ansible.builtin.known_hosts:
+        name: "{{ item.ipv4[0] }}"
+        state: absent
+      loop: "{{ doomed }}"
+      loop_control:
+        label: "{{ item.ipv4[0] }}"

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -30,17 +31,37 @@ func main() {
 
 	profiling.StartFromEnv(logger)
 
+	// Both have to match the flagship, they are part of the SRT stream ID and the HLS path viewers are redirected to
+	passphrase := os.Getenv("HAVEN_PASSPHRASE")
+	if passphrase == "" {
+		passphrase = "thisisaverysecurepassphrase"
+	}
+	streamID := os.Getenv("HAVEN_STREAM_ID")
+	if streamID == "" {
+		streamID = "test"
+	}
+
+	hlsPort := 8555
+	if port := os.Getenv("HLS_PORT"); port != "" {
+		p, err := strconv.Atoi(port)
+		if err != nil {
+			logger.Panic().Err(err).Msgf("Invalid HLS_PORT '%s'", port)
+			return
+		}
+		hlsPort = p
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
-	haven, err := haven.NewHaven(ctx, logger, nil, "thisisaverysecurepassphrase", "test")
+	haven, err := haven.NewHaven(ctx, logger, nil, passphrase, streamID)
 	if err != nil {
 		logger.Panic().Err(err).Msg("Failed to create haven")
 		return
 	}
 
 	hlsConf := hls.Config{
-		Port:           8555,
+		Port:           hlsPort,
 		Address:        "0.0.0.0",
-		Passphrase:     "thisisaverysecurepassphrase",
+		Passphrase:     passphrase,
 		IsFlagship:     false,
 		WriteTimeout:   10 * time.Second,
 		WriteQueueSize: 8192,
@@ -83,7 +104,13 @@ func main() {
 		hlsPublicAddr = fmt.Sprintf(":%d", hlsConf.Port)
 	}
 
-	err = srtServer.Dial("127.0.0.1:8890", srt.EscortStreamID(haven.GetStreamID(), hlsPublicAddr), "thisisaverysecurepassphrase")
+	// SRT address of the flagship to pull the stream from
+	flagshipAddr := os.Getenv("FLAGSHIP_SRT_ADDR")
+	if flagshipAddr == "" {
+		flagshipAddr = "127.0.0.1:8890"
+	}
+
+	err = srtServer.Dial(flagshipAddr, srt.EscortStreamID(haven.GetStreamID(), hlsPublicAddr), passphrase)
 	if err != nil {
 		logger.Panic().Err(err).Msg("Failed to dial SRT server")
 		return

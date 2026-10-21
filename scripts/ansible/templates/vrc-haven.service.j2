@@ -1,0 +1,23 @@
+[Unit]
+Description=VRC-Haven escort
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User={{ haven_service_user }}
+Group={{ haven_service_user }}
+WorkingDirectory={{ haven_install_dir }}
+EnvironmentFile={{ haven_config_dir }}/haven.env
+ExecStart={{ haven_install_dir }}/haven
+# The app only shuts down on SIGINT
+KillSignal=SIGINT
+TimeoutStopSec=15
+Restart=always
+RestartSec=5
+# Lets DASHBOARD_PORT and HLS_PORT be below 1024 without running as root
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

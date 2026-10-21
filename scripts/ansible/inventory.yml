@@ -1,0 +1,6 @@
+# The Linode modules run here, with the Python that runs Ansible so linode_api4 is found
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+      ansible_python_interpreter: "{{ ansible_playbook_python }}"

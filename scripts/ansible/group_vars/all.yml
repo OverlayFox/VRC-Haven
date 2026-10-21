@@ -1,0 +1,35 @@
+# Defaults, override any of these with -e or -e @haven.yml
+
+# Prefix for instance labels and the tag that groups one haven's instances
+haven_name: haven
+
+# Nanode 1GB, the 1GB RAM shared CPU plan
+linode_type: g6-nanode-1
+linode_image: linode/ubuntu24.04
+
+# Regions to put an escort in, as a list or comma separated
+# escort_regions: [au-mel, eu-central]
+escort_regions: [us-central, eu-central, gb-lon]
+
+# The flagship the escorts pull from, it is not deployed by these playbooks
+# flagship_ip: 203.0.113.7
+flagship_port: 8890
+# flagship_passphrase: belongs in the credentials file
+# flagship_application: the stream ID the flagship serves
+
+haven_log_level: info
+haven_log_format: json
+haven_dashboard_port: 8080
+# Go ignores the cgroup and instance memory, keep the GC working below the 1GB of the Nanode
+haven_gomemlimit: 768MiB
+
+# Port the escorts serve HLS on, the flagship redirects viewers to it
+haven_hls_port: 8554
+
+haven_install_dir: /opt/vrc-haven
+haven_config_dir: /etc/vrc-haven
+haven_service_user: haven
+
+# Where deploy.yml puts the binary it builds on the machine running Ansible
+haven_build_dir: "{{ playbook_dir }}/.build"
+haven_repo_dir: "{{ playbook_dir }}/../.."
