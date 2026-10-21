@@ -80,13 +80,19 @@ func (h *Haven) GetPublisher() (types.ConnectionSRT, error) {
 }
 
 func (h *Haven) GetClosestEscort(location types.Location) types.ConnectionSRT {
-	if len(h.escorts) == 0 {
+	h.publisherMtx.RLock()
+	if h.publisher == nil {
+		h.publisherMtx.RUnlock()
 		return nil
 	}
+	flagshipLocation := h.publisher.GetLocation() // TODO: use the havens location instead of the publishers location
+	h.publisherMtx.RUnlock()
+
+	h.escortMtx.RLock()
+	defer h.escortMtx.RUnlock()
 
 	var closestEscort types.ConnectionSRT
 	clientGeoPoint := location.GetGeoPoint()
-	flagshipLocation := h.publisher.GetLocation() // TODO: use the havens location instead of the publishers location
 	closestDistance := flagshipLocation.GetDistanceBetween(clientGeoPoint)
 
 	for _, escort := range h.escorts {
@@ -139,7 +145,9 @@ func (h *Haven) AddConnection(conn types.Connection) error {
 }
 
 func (h *Haven) addEscort(conn types.ConnectionSRT) error {
+	h.escortMtx.Lock()
 	h.escorts = append(h.escorts, conn)
+	h.escortMtx.Unlock()
 
 	// Monitor the escort's context and remove it from the map when it is done
 	h.wg.Go(func() {
@@ -293,6 +301,9 @@ func (h *Haven) clearPublisher() {
 }
 
 func (h *Haven) broadcastToEscorts(packet packet.Packet) []error {
+	h.escortMtx.RLock()
+	defer h.escortMtx.RUnlock()
+
 	var errs []error
 	for _, escort := range h.escorts {
 		escortClone := packet.Clone()
@@ -409,9 +420,41 @@ func (h *Haven) Close() {
 	}
 }
 
+func (h *Haven) PublisherStats() *types.PeerStats {
+	h.publisherMtx.RLock()
+	defer h.publisherMtx.RUnlock()
+
+	if h.publisher == nil {
+		return nil
+	}
+	stats := peerStats(h.publisher)
+	return &stats
+}
+
+func (h *Haven) EscortStats() []types.PeerStats {
+	h.escortMtx.RLock()
+	defer h.escortMtx.RUnlock()
+
+	stats := make([]types.PeerStats, 0, len(h.escorts))
+	for _, escort := range h.escorts {
+		stats = append(stats, peerStats(escort))
+	}
+	return stats
+}
+
 //
 // Helper functions
 //
+
+func peerStats(conn types.ConnectionSRT) types.PeerStats {
+	return types.PeerStats{
+		Addr:     conn.GetAddr().String(),
+		Type:     conn.GetType(),
+		Location: conn.GetLocation(),
+		HLSAddr:  conn.GetAdvertisedAddr(),
+		SRT:      conn.GetStats(),
+	}
+}
 
 func (h *Haven) PublisherIsReady() bool {
 	h.publisherMtx.RLock()

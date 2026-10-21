@@ -29,8 +29,9 @@ type connection struct {
 
 	demuxer *multiplexer.MpegTsDemuxer
 
-	haven    types.Haven
-	location types.Location
+	haven          types.Haven
+	location       types.Location
+	advertisedAddr string
 
 	wg     sync.WaitGroup
 	ctx    context.Context
@@ -99,6 +100,15 @@ func NewConnectionFromRequest(upstreamCtx context.Context, logger zerolog.Logger
 	}
 	c.connType = streamID.connectionType
 
+	if c.connType == types.ConnectionTypeEscort {
+		c.advertisedAddr, err = resolveAdvertisedAddr(streamID.advertisedAddr, connReq.RemoteAddr())
+		if err != nil {
+			connReq.Reject(goSrt.REJ_ROGUE)
+			return nil, err
+		}
+		c.logger = c.logger.With().Str("hls_addr", c.advertisedAddr).Logger()
+	}
+
 	c.conn, err = connReq.Accept()
 	if err != nil {
 		connReq.Reject(goSrt.REJ_PEER)
@@ -124,6 +134,40 @@ func (c *connection) GetAddr() net.Addr {
 
 func (c *connection) GetType() types.ConnectionType {
 	return c.connType
+}
+
+func (c *connection) GetAdvertisedAddr() string {
+	return c.advertisedAddr
+}
+
+func (c *connection) GetStats() types.SRTStats {
+	var s goSrt.Statistics
+	c.conn.Stats(&s)
+
+	return types.SRTStats{
+		ConnectedForMs: s.MsTimeStamp,
+
+		RTTMs:            s.Instantaneous.MsRTT,
+		SendMbps:         s.Instantaneous.MbpsSentRate,
+		RecvMbps:         s.Instantaneous.MbpsRecvRate,
+		LinkCapacityMbps: s.Instantaneous.MbpsLinkCapacity,
+		SendLossPercent:  s.Instantaneous.PktSendLossRate,
+		RecvLossPercent:  s.Instantaneous.PktRecvLossRate,
+		SendBufMs:        s.Instantaneous.MsSendBuf,
+		RecvBufMs:        s.Instantaneous.MsRecvBuf,
+		LatencyMs:        max(s.Instantaneous.MsSendTsbPdDelay, s.Instantaneous.MsRecvTsbPdDelay),
+
+		PktSent:        s.Accumulated.PktSent,
+		PktRecv:        s.Accumulated.PktRecv,
+		PktSendLoss:    s.Accumulated.PktSendLoss,
+		PktRecvLoss:    s.Accumulated.PktRecvLoss,
+		PktRetrans:     s.Accumulated.PktRetrans,
+		PktRecvRetrans: s.Accumulated.PktRecvRetrans,
+		PktSendDrop:    s.Accumulated.PktSendDrop,
+		PktRecvDrop:    s.Accumulated.PktRecvDrop,
+		ByteSent:       s.Accumulated.ByteSent,
+		ByteRecv:       s.Accumulated.ByteRecv,
+	}
 }
 
 func (c *connection) GetCtx() context.Context {
@@ -215,7 +259,7 @@ func (c *connection) read() (chan packet.Packet, chan error) {
 					} else {
 						c.logger.Info().Err(err).Msg("SRT connection to flagship closed, reconnecting")
 						go func() {
-							_ = c.server.Dial(c.GetAddr().String(), fmt.Sprintf("escort:%s", c.haven.GetStreamID()), c.haven.GetPassphrase())
+							_ = c.server.Dial(c.GetAddr().String(), c.config.StreamId, c.haven.GetPassphrase())
 						}()
 					}
 					c.Close()

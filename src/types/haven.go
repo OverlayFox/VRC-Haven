@@ -12,5 +12,9 @@ type Haven interface {
 	GetClosestEscort(Location) ConnectionSRT
 	GetViewer(net.Addr) (ConnectionRTSP, error)
 
+	// PublisherStats returns the stream's source, the publisher on a flagship or the upstream flagship on an escort. Nil while none is connected.
+	PublisherStats() *PeerStats
+	EscortStats() []PeerStats
+
 	Close()
 }
