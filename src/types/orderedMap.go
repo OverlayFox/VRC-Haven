@@ -48,6 +48,17 @@ func (om *OrderedMap[K, V]) Drop(key K) bool {
 	return true
 }
 
+// Oldest returns the first inserted key-value pair still in the map.
+func (om *OrderedMap[K, V]) Oldest() (K, V, bool) {
+	if len(om.keys) == 0 {
+		var key K
+		var val V
+		return key, val, false
+	}
+	key := om.keys[0]
+	return key, om.vals[key], true
+}
+
 // Len returns the number of items in the map.
 func (om *OrderedMap[K, V]) Len() int {
 	return len(om.keys)

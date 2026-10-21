@@ -131,6 +131,9 @@ func (b *subBuffer) writeVideo(frame types.Frame) error {
 	b.mtx.Lock()
 	b.curPTS = frame.Header().Pts
 	b.keyFrames.Drop(frame.Header().Pts)
+	if oldestPTS, oldestPos, ok := b.keyFrames.Oldest(); ok && oldestPos == pos {
+		b.keyFrames.Drop(oldestPTS)
+	}
 	if len(idr) > 0 {
 		b.keyFrames.Set(frame.Header().Pts, pos)
 	}
@@ -216,6 +219,14 @@ func (b *subBuffer) subscribe(upstreamCtx context.Context, startPos int, _ time.
 	}
 	firstFramePTS := first.Header().Pts
 
+	// Holding the lock keeps Close from waiting on the WaitGroup before this subscriber is added to it
+	b.mtx.RLock()
+	defer b.mtx.RUnlock()
+	if b.ctx.Err() != nil {
+		first.Decommission()
+		return nil, ErrClosed
+	}
+
 	outCh := make(chan types.Frame, OutChCap)
 	b.wg.Go(func() {
 		defer CloseAndDrain(outCh)
@@ -254,11 +265,15 @@ func (b *subBuffer) subscribe(upstreamCtx context.Context, startPos int, _ time.
 				lastPTS = frame.Header().Pts
 			}
 		}
-		for _, frame := range preBuf {
+		for i, frame := range preBuf {
 			select {
 			case <-b.ctx.Done():
+				preBuf = preBuf[i:]
+				drainPreBuf()
 				return
 			case <-upstreamCtx.Done():
+				preBuf = preBuf[i:]
+				drainPreBuf()
 				return
 			case outCh <- frame:
 			default:
@@ -296,23 +311,25 @@ func (b *subBuffer) subscribe(upstreamCtx context.Context, startPos int, _ time.
 }
 
 func (b *subBuffer) Cancel() {
+	b.mtx.Lock()
 	b.cancel()
+	b.mtx.Unlock()
 }
 
+// Close stops all subscribers and frees the buffered frames. The fields stay valid, so a concurrent subscribe fails instead of dereferencing nil.
 func (b *subBuffer) Close() {
 	b.logger.Debug().Msg("Closing buffer stream")
+	b.Cancel()
 	b.wg.Wait()
+
 	b.mtx.Lock()
 	defer b.mtx.Unlock()
 	b.ready.Store(false)
-	if b.circBuf != nil {
-		b.circBuf.Close()
-		b.circBuf = nil
-	}
+	b.circBuf.Close()
 	b.started = false
 	b.startPTS = 0
 	b.curPTS = 0
-	b.keyFrames = nil
+	b.keyFrames = types.NewOrderedMap[time.Duration, int]()
 	b.format = types.FrameFormatUnknown
 }
 
@@ -356,7 +373,7 @@ func (b *subBuffer) getStartPosFromPTS(targetPTS time.Duration) (pos int, pts ti
 		return 0, 0, fmt.Errorf("requested PTS '%s' is in the future relative to buffer current newest PTS '%s' in buffer", targetPTS, b.curPTS)
 	}
 
-	newestFramePos := (b.circBuf.writePos - 1 + b.cap) % b.cap
+	newestFramePos := b.circBuf.newestKeyFramePos()
 	peeked, err := b.circBuf.peek(newestFramePos)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to peek newest frame: %w", err)

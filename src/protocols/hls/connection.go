@@ -246,72 +246,82 @@ func (c *Connection) Close() {
 
 // extractMetadata reads from the provided video and audio channels and writes them to new channels in place.
 // It extracts the SPS/PPS from the video stream and the Audio Specific Config from the audio stream, which are needed to prime the HLS muxer.
-//
-//nolint:gocognit // This function is a bit complex due to the need to read from both channels concurrently and wait until both metadata are extracted before returning.
 func (c *Connection) extractMetadata(videoCh, audioCh *chan types.Frame) (sps, pps []byte, asc *mpeg4audio.AudioSpecificConfig, err error) {
 	upstreamVideoCh := *videoCh
 	upstreamAudioCh := *audioCh
-	*videoCh = make(chan types.Frame, cap(upstreamVideoCh))
-	*audioCh = make(chan types.Frame, cap(upstreamAudioCh))
+	outVideoCh := make(chan types.Frame, cap(upstreamVideoCh))
+	outAudioCh := make(chan types.Frame, cap(upstreamAudioCh))
+	*videoCh = outVideoCh
+	*audioCh = outAudioCh
 
-	receiveDone := make(chan struct{}, 2)
+	type metadata struct {
+		sps, pps []byte
+		asc      *mpeg4audio.AudioSpecificConfig
+	}
+	found := make(chan metadata, 1)
 
 	c.wg.Go(func() {
-		defer close(receiveDone)
-		defer close(*videoCh)
-		defer close(*audioCh)
+		defer close(found)
+		defer close(outVideoCh)
+		defer close(outAudioCh)
 
+		forward := func(ch chan types.Frame, frame types.Frame) bool {
+			select {
+			case ch <- frame:
+				return true
+			case <-c.ctx.Done():
+				frame.Decommission()
+				return false
+			}
+		}
+
+		var meta metadata
+		reported := false
 		for {
 			select {
 			case frame, ok := <-upstreamVideoCh:
 				if !ok {
 					return
 				}
-				if sps != nil && pps != nil {
-					*videoCh <- frame
-					continue
-				}
-
-				if sps == nil || pps == nil {
-					extractedSps, extractedPps, err := ExtractSPSPPS(frame)
-					if err == nil {
-						sps, pps = extractedSps, extractedPps
-						if sps != nil && pps != nil && asc != nil {
-							receiveDone <- struct{}{}
-						}
+				if meta.sps == nil || meta.pps == nil {
+					if extractedSps, extractedPps, err := ExtractSPSPPS(frame); err == nil {
+						meta.sps, meta.pps = extractedSps, extractedPps
 					}
 				}
-				*videoCh <- frame
+				if !forward(outVideoCh, frame) {
+					return
+				}
 
 			case frame, ok := <-upstreamAudioCh:
 				if !ok {
 					return
 				}
-				if asc != nil {
-					*audioCh <- frame
-					continue
-				}
-
-				if asc == nil {
-					extractedAsc, err := ExtractASC(frame)
-					if err == nil {
-						asc = extractedAsc
-						if sps != nil && pps != nil && asc != nil {
-							receiveDone <- struct{}{}
-						}
+				if meta.asc == nil {
+					if extractedAsc, err := ExtractASC(frame); err == nil {
+						meta.asc = extractedAsc
 					}
 				}
-				*audioCh <- frame
+				if !forward(outAudioCh, frame) {
+					return
+				}
 
 			case <-c.ctx.Done():
 				return
+			}
+
+			if !reported && meta.sps != nil && meta.pps != nil && meta.asc != nil {
+				found <- meta
+				reported = true
 			}
 		}
 	})
 
 	select {
-	case <-receiveDone:
-		return sps, pps, asc, nil
+	case meta, ok := <-found:
+		if !ok {
+			return nil, nil, nil, errors.New("stream ended while waiting for metadata")
+		}
+		return meta.sps, meta.pps, meta.asc, nil
 	case <-c.ctx.Done():
 		return nil, nil, nil, errors.New("context cancelled while waiting for metadata")
 	}
@@ -339,6 +349,7 @@ func (c *Connection) handleFrames(packetCh <-chan types.Frame, muxFunc func(fram
 				return
 			case frame, ok := <-packetCh:
 				if !ok {
+					c.cancel()
 					return
 				}
 
@@ -414,8 +425,7 @@ func (c *Connection) writeAAC(frame types.Frame) error {
 		return fmt.Errorf("invalid PTS for AAC frame: %d", baseNanos)
 	}
 
-	// PES timestamps always run on the fixed 90kHz MPEG-TS clock, regardless
-	// of the audio sample rate.
+	// PES timestamps always run on the fixed 90kHz MPEG-TS clock, regardless of the audio sample rate.
 	ptsTicks := (baseNanos * 90000) / 1000000000
 
 	c.mtx.Lock()

@@ -241,6 +241,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		conn := NewConnection(s.ctx, s.logger, location)
 		if err := s.haven.AddConnection(conn); err != nil {
 			s.connMtx.Unlock()
+			conn.Close() // releases its context and any goroutines a partial subscription started
 			logClient(s.logger.Error(), r).Err(err).Msg("Failed to hook HLS connection to stream haven")
 			http.Error(w, "Failed to initialize stream", http.StatusInternalServerError)
 			return

@@ -93,7 +93,9 @@ func (d *MpegTsDemuxer) StartDemuxer(pktChan chan packet.Packet) (chan types.Fra
 	frameChan := make(chan types.Frame, d.settings.OutputBufferCap)
 	errChan := make(chan error, 1)
 
+	buf := d.buffer
 	d.wg.Go(func() {
+		defer buf.Close()
 		for {
 			select {
 			case <-d.ctx.Done():
@@ -122,7 +124,7 @@ func (d *MpegTsDemuxer) StartDemuxer(pktChan chan packet.Packet) (chan types.Fra
 				return
 			default:
 				if err := d.handleNext(frameChan, pidTypes); err != nil {
-					d.buffer.setError(err)
+					buf.setError(err)
 					d.logger.Error().Err(err).Msg("Demuxer error")
 					return
 				}

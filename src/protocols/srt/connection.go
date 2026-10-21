@@ -14,7 +14,6 @@ import (
 	"github.com/datarhei/gosrt/packet"
 	"github.com/rs/zerolog"
 
-	"github.com/OverlayFox/VRC-Haven/src/multiplexer"
 	"github.com/OverlayFox/VRC-Haven/src/types"
 )
 
@@ -32,8 +31,6 @@ type connection struct {
 	conn     goSrt.Conn
 	connType types.ConnectionType
 	isEscort bool
-
-	demuxer *multiplexer.MpegTsDemuxer
 
 	haven          types.Haven
 	location       types.Location
@@ -59,12 +56,6 @@ func NewConnection(upstreamCtx context.Context, logger zerolog.Logger, haven typ
 		connType: types.ConnectionTypePublishingEscort,
 		isEscort: true,
 
-		demuxer: multiplexer.NewMpegTsDemuxer(ctx, logger.With().Str("module", "demuxer").Logger(), multiplexer.Settings{
-			InputBufferCap:  50,
-			OutputBufferCap: 200,
-			AudioDriftLimit: 20 * time.Millisecond,
-		}),
-
 		haven: haven,
 
 		ctx:    ctx,
@@ -72,26 +63,22 @@ func NewConnection(upstreamCtx context.Context, logger zerolog.Logger, haven typ
 	}
 	c.writeDropLogger = newWriteDropLogger(c.logger)
 
+	// No waitgroup: this goroutine triggers connection close, avoiding deadlock.
+	go func() {
+		<-c.ctx.Done()
+		c.close()
+	}()
+
 	return c, nil
 }
 
 func NewConnectionFromRequest(upstreamCtx context.Context, logger zerolog.Logger, haven types.Haven, locator types.Locator, connReq goSrt.ConnRequest) (types.ConnectionSRT, error) {
-	ctx, cancel := context.WithCancel(upstreamCtx)
 	c := &connection{
 		logger: logger,
 
 		isEscort: false,
 
-		demuxer: multiplexer.NewMpegTsDemuxer(ctx, logger.With().Str("module", "demuxer").Logger(), multiplexer.Settings{
-			InputBufferCap:  50,
-			OutputBufferCap: 200,
-			AudioDriftLimit: 20 * time.Millisecond,
-		}),
-
 		haven: haven,
-
-		ctx:    ctx,
-		cancel: cancel,
 	}
 
 	streamID, err := parseStreamRequest(connReq)
@@ -126,6 +113,8 @@ func NewConnectionFromRequest(upstreamCtx context.Context, logger zerolog.Logger
 		connReq.Reject(goSrt.REJ_PEER)
 		return nil, fmt.Errorf("failed to accept SRT connection: %w", err)
 	}
+	// Created only once accepted, a rejected request would otherwise leave a child context on the server's context
+	c.ctx, c.cancel = context.WithCancel(upstreamCtx)
 
 	// No waitgroup: this goroutine triggers connection close, avoiding deadlock.
 	go func() {
@@ -270,6 +259,9 @@ func (c *connection) read() (chan packet.Packet, chan error) {
 		waitLogger := c.logger.Sample(&zerolog.BurstSampler{Burst: 1, Period: 5 * time.Second})
 
 		for {
+			if c.ctx.Err() != nil {
+				return
+			}
 			if err := c.conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 				select {
 				case <-c.ctx.Done():
