@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- public ip address is now resolved from the haven when it starts
 - started reading from escort to remove them from Haven once they return `io.EOF`
 - fixed VR-Chat freezing on the first frame of HLS streams
 - fixed VR-Chat freezing when the publisher disconnects, players got 500s for the playlist and then a new playlist whose media sequence went back to 0
