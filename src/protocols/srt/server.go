@@ -14,8 +14,13 @@ import (
 )
 
 const (
-	initialBackoff = 100 * time.Millisecond
-	maxBackoff     = 10 * time.Second
+	initialBackoff    = 100 * time.Millisecond
+	maxBackoff        = 10 * time.Second
+	defaultSRTLatency = 1 * time.Second
+
+	// rttProbeDuration is how long a new connection exchanges ACKs before its RTT is trusted.
+	// gosrt sends a full ACK every 10ms and starts its RTT estimate at 100ms, after 1s of samples that start value is gone.
+	rttProbeDuration = 1 * time.Second
 )
 
 type Config struct {
@@ -123,25 +128,28 @@ func (s *server) Dial(address string, streamID, passphrase string) error {
 	if passphrase != "" {
 		config.Passphrase = passphrase
 	}
-	s.logger.Info().Str("remote_addr", address).Str("stream_id", streamID).Msg("Dialing remote Flagship SRT server")
+	config.Latency = minSRTRTT * srtRTTMultiplier // start at the lowest latency possible
 
-	var conn gosrt.Conn
-	tries := 0
-	backoff := initialBackoff
-	for {
-		var err error
-		conn, err = gosrt.Dial("srt", address, config)
-		if err == nil {
-			break
-		}
-		tries++
-		s.logger.Warn().Err(err).Int("attempt", tries).Int64("backoff_ms", backoff.Milliseconds()).Msg("Failed to establish initial connection with Flagship SRT server, retrying")
-		select {
-		case <-s.ctx.Done():
-			return s.ctx.Err()
-		case <-time.After(backoff):
-			backoff = min(backoff*2, maxBackoff)
-			continue
+	s.logger.Info().Str("remote_addr", address).Str("stream_id", streamID).Msg("Dialing remote Flagship SRT server")
+	conn, err := s.dialFlagship(address, config)
+	if err != nil {
+		return err
+	}
+
+	select {
+	case <-s.ctx.Done():
+		_ = conn.Close()
+		return s.ctx.Err()
+	case <-time.After(rttProbeDuration):
+	}
+
+	wanted, negotiated := latencyFromRTT(conn)
+	if wanted > negotiated {
+		s.logger.Info().Dur("negotiated", negotiated).Dur("wanted", wanted).Msg("RTT needs a higher SRT latency, reconnecting")
+		_ = conn.Close()
+		config.Latency = wanted
+		if conn, err = s.dialFlagship(address, config); err != nil {
+			return err
 		}
 	}
 
@@ -161,6 +169,25 @@ func (s *server) Dial(address string, streamID, passphrase string) error {
 	s.logger.Info().Str("remote_addr", address).Msg("Successfully connected to remote Flagship SRT server")
 
 	return nil
+}
+
+func (s *server) dialFlagship(address string, config gosrt.Config) (gosrt.Conn, error) {
+	tries := 0
+	backoff := initialBackoff
+	for {
+		conn, err := gosrt.Dial("srt", address, config)
+		if err == nil {
+			return conn, nil
+		}
+		tries++
+		s.logger.Warn().Err(err).Int("attempt", tries).Int64("backoff_ms", backoff.Milliseconds()).Msg("Failed to establish connection with Flagship SRT server, retrying")
+		select {
+		case <-s.ctx.Done():
+			return nil, s.ctx.Err()
+		case <-time.After(backoff):
+			backoff = min(backoff*2, maxBackoff)
+		}
+	}
 }
 
 func (s *server) Close() {

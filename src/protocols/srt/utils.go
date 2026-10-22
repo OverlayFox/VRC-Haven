@@ -6,10 +6,17 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	goSrt "github.com/datarhei/gosrt"
 
 	"github.com/OverlayFox/VRC-Haven/src/types"
+)
+
+const (
+	srtRTTMultiplier = 6
+	minSRTRTT        = 20 * time.Millisecond
+	maxSRTLatency    = 8 * time.Second
 )
 
 type streamRequest struct {
@@ -116,4 +123,15 @@ func validateConnectionRequest(haven types.Haven, req goSrt.ConnRequest, streamI
 	}
 
 	return nil
+}
+
+func latencyFromRTT(conn goSrt.Conn) (wanted, negotiated time.Duration) {
+	var stats goSrt.Statistics
+	conn.Stats(&stats)
+
+	rtt := max(time.Duration(stats.Instantaneous.MsRTT*float64(time.Millisecond)), minSRTRTT)
+	wanted = min(rtt*srtRTTMultiplier, maxSRTLatency)
+	negotiatedMs := min(max(stats.Instantaneous.MsRecvTsbPdDelay, stats.Instantaneous.MsSendTsbPdDelay), uint64(maxSRTLatency/time.Millisecond))
+	negotiated = time.Duration(negotiatedMs) * time.Millisecond
+	return wanted, negotiated
 }
