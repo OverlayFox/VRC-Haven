@@ -29,6 +29,10 @@ func (l Location) String() string {
 	return fmt.Sprintf("%s, %s, %s (%.4f, %.4f)", l.City, l.StateName, l.CountryName, l.Latitude, l.Longitude)
 }
 
+func (l Location) IsSet() bool {
+	return l.Latitude != 0 || l.Longitude != 0
+}
+
 type Locator interface {
 	GetLocation(addr net.Addr) (Location, error)
 }

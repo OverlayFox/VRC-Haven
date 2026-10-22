@@ -23,6 +23,8 @@ type Haven struct {
 
 	streamID   string
 	passphrase string
+	publicIP   net.Addr
+	location   types.Location // location of the haven
 
 	publisher types.ConnectionSRT               // publisher provides the main stream
 	escorts   []types.ConnectionSRT             // escorts are nodes that relay the publisher's stream to viewers
@@ -44,7 +46,7 @@ type Haven struct {
 
 func NewHaven(upstreamCtx context.Context, logger zerolog.Logger, locator types.Locator, passphrase, streamID string) (types.Haven, error) {
 	ctx, cancel := context.WithCancel(upstreamCtx)
-	return &Haven{
+	h := &Haven{
 		logger: logger.With().Str("component", "haven").Logger(),
 
 		streamID:   streamID,
@@ -58,7 +60,22 @@ func NewHaven(upstreamCtx context.Context, logger zerolog.Logger, locator types.
 
 		ctx:    ctx,
 		cancel: cancel,
-	}, nil
+	}
+	if locator != nil {
+		pubIP, err := GetPublicIP(h.ctx, h.logger)
+		if err == nil {
+			h.logger.Debug().Str("haven_ip", pubIP.String()).Msg("got public IP for haven")
+			location, err := h.locator.GetLocation(pubIP)
+			if err != nil {
+				h.logger.Warn().Err(err).Msg("failed to get havens location, redirection might not work correctly")
+			} else {
+				h.location = location
+				h.publicIP = pubIP
+			}
+		}
+	}
+
+	return h, nil
 }
 
 func (h *Haven) GetStreamID() string {
@@ -85,20 +102,24 @@ func (h *Haven) GetClosestEscort(location types.Location) types.ConnectionSRT {
 		h.publisherMtx.RUnlock()
 		return nil
 	}
-	flagshipLocation := h.publisher.GetLocation() // TODO: use the havens location instead of the publishers location
-	h.publisherMtx.RUnlock()
 
 	h.escortMtx.RLock()
 	defer h.escortMtx.RUnlock()
 
+	var firstLocation types.Location
+	if h.location.IsSet() {
+		firstLocation = h.location
+	} else {
+		firstLocation = h.escorts[0].GetLocation()
+	}
+
 	var closestEscort types.ConnectionSRT
 	clientGeoPoint := location.GetGeoPoint()
-	closestDistance := flagshipLocation.GetDistanceBetween(clientGeoPoint)
+	closestDistance := firstLocation.GetDistanceBetween(clientGeoPoint)
 
 	for _, escort := range h.escorts {
 		escortLocation := escort.GetLocation()
 		distance := escortLocation.GetDistanceBetween(clientGeoPoint)
-
 		if distance < closestDistance {
 			closestDistance = distance
 			closestEscort = escort

@@ -12,7 +12,7 @@ linode_image: linode/ubuntu24.04
 
 # Regions to put an escort in, as a list or comma separated
 # escort_regions: [au-mel, eu-central]
-escort_regions: [us-central, eu-central, gb-lon]
+escort_regions: [us-central, eu-central, gb-lon, it-mil]
 
 # The flagship the escorts pull from, it is not deployed by these playbooks
 # flagship_ip: 203.0.113.7
