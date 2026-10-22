@@ -131,6 +131,7 @@ func latencyFromRTT(conn goSrt.Conn) (wanted, negotiated time.Duration) {
 
 	rtt := max(time.Duration(stats.Instantaneous.MsRTT*float64(time.Millisecond)), minSRTRTT)
 	wanted = min(rtt*srtRTTMultiplier, maxSRTLatency)
-	negotiated = time.Duration(max(stats.Instantaneous.MsRecvTsbPdDelay, stats.Instantaneous.MsSendTsbPdDelay)) * time.Millisecond
+	negotiatedMs := min(max(stats.Instantaneous.MsRecvTsbPdDelay, stats.Instantaneous.MsSendTsbPdDelay), uint64(maxSRTLatency/time.Millisecond))
+	negotiated = time.Duration(negotiatedMs) * time.Millisecond
 	return wanted, negotiated
 }
