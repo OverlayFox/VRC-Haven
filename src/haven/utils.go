@@ -32,7 +32,6 @@ func GetPublicIP(ctx context.Context, logger zerolog.Logger) (net.Addr, error) {
 	// shuffle a copy so no single provider is always hit first and the shared slice is never mutated
 	order := slices.Clone(providers)
 	rand.Shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] }) //nolint:gosec // provider order only spreads load, predictability has no security impact
-
 	for _, provider := range order {
 		if err := ctx.Err(); err != nil {
 			return nil, err
