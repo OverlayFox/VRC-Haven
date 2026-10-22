@@ -149,6 +149,14 @@ func (h *Haven) addEscort(conn types.ConnectionSRT) error {
 	h.escorts = append(h.escorts, conn)
 	h.escortMtx.Unlock()
 
+	// Escorts send no data, reading only notices the peer closing the connection, even while nothing is broadcast to it
+	escortEgress := conn.Read()
+	h.wg.Go(func() {
+		for p := range escortEgress {
+			p.Decommission()
+		}
+	})
+
 	// Monitor the escort's context and remove it from the map when it is done
 	h.wg.Go(func() {
 		select {
@@ -157,7 +165,7 @@ func (h *Haven) addEscort(conn types.ConnectionSRT) error {
 			conn.Close()
 
 		case <-conn.GetCtx().Done():
-			h.logger.Debug().Str("remote_addr", conn.GetAddr().String()).Msg("Escort context done, removing escort from haven")
+			h.logger.Info().Str("remote_addr", conn.GetAddr().String()).Msg("Escort context done, removing escort from haven")
 
 			h.escortMtx.Lock()
 			defer h.escortMtx.Unlock()

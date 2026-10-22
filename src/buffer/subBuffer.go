@@ -149,7 +149,7 @@ func (b *subBuffer) writeVideo(frame types.Frame) error {
 		b.mtx.RUnlock()
 		if healthy && enough {
 			b.ready.Store(true)
-			b.logger.Debug().Msg("Video buffer ready")
+			b.logger.Info().Msg("Video buffer ready")
 		}
 	}
 	frame.Decommission()
@@ -175,7 +175,7 @@ func (b *subBuffer) writeAudio(frame types.Frame) error {
 		b.mtx.RUnlock()
 		if healthy {
 			b.ready.Store(true)
-			b.logger.Debug().Msg("Audio buffer ready")
+			b.logger.Info().Msg("Audio buffer ready")
 		}
 	}
 	frame.Decommission()
