@@ -118,8 +118,8 @@ function srtDetails(srt) {
 }
 
 function renderIngest(peer, status) {
-  const title = status.role === "escort" ? "Upstream flagship" : "Publisher ingest";
-  if (!peer) return card(title, el("p", { class: "empty" }, status.role === "escort" ? "Not connected to the flagship." : "No publisher connected."));
+  const title = status.role ? "Publisher ingest" : "Upstream flagship";
+  if (!peer) return card(title, el("p", { class: "empty" }, status.role ? "No publisher connected." : "Not connected to the flagship."));
   return card(
     title,
     el("p", {}, peer.addr, " ", el("span", { class: "sub" }, fmtLocation(peer.location))),
@@ -254,8 +254,9 @@ let inFlight = false;
 let timer = null;
 
 function render(status) {
-  document.getElementById("role").textContent = status.role;
-  document.body.className = "role-" + status.role;
+  const role = status.role ? "flagship" : "escort";
+  document.getElementById("role").textContent = role;
+  document.body.className = "role-" + role;
   document.getElementById("uptime").textContent = "up " + fmtDuration(status.uptime_ms);
 
   root.replaceChildren(

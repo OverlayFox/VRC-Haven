@@ -14,12 +14,35 @@ import (
 
 func newTestServer(t *testing.T, config dashboard.Config, sections ...dashboard.Section) http.Handler {
 	t.Helper()
-	config.Role = dashboard.RoleFlagship
+	config.IsFlagship = true
 	s, err := dashboard.New(zerolog.Nop(), config, sections...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return s
+}
+
+type statusResponse struct {
+	IsFlagship bool `json:"role"`
+	Sections   []struct {
+		Key  string          `json:"key"`
+		Data json.RawMessage `json:"data"`
+	} `json:"sections"`
+}
+
+func getStatus(t *testing.T, handler http.Handler) statusResponse {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/status", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+
+	var got statusResponse
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	return got
 }
 
 func TestStatusKeepsSectionOrder(t *testing.T) {
@@ -28,27 +51,24 @@ func TestStatusKeepsSectionOrder(t *testing.T) {
 		dashboard.NewSection("a", func() []string { return []string{"x"} }),
 	)
 
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/status", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
-
-	var got struct {
-		Role     string `json:"role"`
-		Sections []struct {
-			Key  string          `json:"key"`
-			Data json.RawMessage `json:"data"`
-		} `json:"sections"`
-	}
-	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Role != dashboard.RoleFlagship || len(got.Sections) != 2 {
+	got := getStatus(t, handler)
+	if len(got.Sections) != 2 {
 		t.Fatalf("unexpected status %+v", got)
 	}
 	if got.Sections[0].Key != "b" || string(got.Sections[0].Data) != "2" || got.Sections[1].Key != "a" || string(got.Sections[1].Data) != `["x"]` {
 		t.Errorf("unexpected sections %+v", got.Sections)
+	}
+}
+
+func TestStatusIsFlagship(t *testing.T) {
+	for _, isFlagship := range []bool{true, false} {
+		s, err := dashboard.New(zerolog.Nop(), dashboard.Config{IsFlagship: isFlagship})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := getStatus(t, s); got.IsFlagship != isFlagship {
+			t.Errorf("IsFlagship %v: status reported %v", isFlagship, got.IsFlagship)
+		}
 	}
 }
 
@@ -95,21 +115,25 @@ func TestBasicAuth(t *testing.T) {
 	}
 }
 
-func TestConfigFromEnv(t *testing.T) {
-	t.Setenv("DASHBOARD_PORT", "")
-	config, err := dashboard.ConfigFromEnv(dashboard.RoleEscort)
-	if err != nil || config.Port != 8080 {
-		t.Errorf("default config = %+v, %v", config, err)
-	}
+func TestDefaultConfig(t *testing.T) {
+	var config dashboard.Config
+	config.SetDefaults()
 
-	t.Setenv("DASHBOARD_PORT", "4242")
-	config, err = dashboard.ConfigFromEnv(dashboard.RoleEscort)
-	if err != nil || config.Port != 4242 {
-		t.Errorf("config with port = %+v, %v", config, err)
+	if config.Port != 8080 {
+		t.Errorf("default port = %d, want 8080", config.Port)
 	}
+	if err := config.Validate(); err != nil {
+		t.Errorf("default config is invalid: %v", err)
+	}
+}
 
-	t.Setenv("DASHBOARD_PORT", "eighty")
-	if _, err = dashboard.ConfigFromEnv(dashboard.RoleEscort); err == nil {
-		t.Error("expected error for invalid DASHBOARD_PORT")
+func TestValidatePort(t *testing.T) {
+	for _, port := range []int{-1, 65536} {
+		if err := (dashboard.Config{Port: port}).Validate(); err == nil {
+			t.Errorf("expected error for port %d", port)
+		}
+	}
+	if _, err := dashboard.New(zerolog.Nop(), dashboard.Config{Port: 70000}); err == nil {
+		t.Error("New accepted port 70000")
 	}
 }

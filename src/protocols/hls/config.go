@@ -1,36 +1,39 @@
 package hls
 
 import (
-	"errors"
 	"fmt"
-	"net/url"
 	"time"
 )
 
 type Config struct {
-	Port       int
-	Address    string
-	Passphrase string
-	IsFlagship bool
+	Port    int
+	Address string
+
+	IsFlagship bool `koanf:"-"`
 
 	ReadTimeout    time.Duration
+	ReadQueueSize  int
 	WriteTimeout   time.Duration
-	MaxPacketSize  int
 	WriteQueueSize int
 }
 
-func (c Config) Validate() error {
+func (c *Config) Validate() error {
 	if c.Port < 0 || c.Port > 65535 {
 		return fmt.Errorf("invalid port: %d", c.Port)
 	}
 
-	if len(c.Passphrase) < 10 {
-		return errors.New("passphrase must be at least 10 characters long")
-	}
-
-	if url.PathEscape(c.Passphrase) != c.Passphrase {
-		return errors.New("passphrase contains characters that are not safe for a URL path")
-	}
-
 	return nil
+}
+
+func (c *Config) SetDefaults() {
+	*c = Config{
+		Port:    8890,
+		Address: "0.0.0.0",
+
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+
+		ReadQueueSize:  8192,
+		WriteQueueSize: 8192,
+	}
 }

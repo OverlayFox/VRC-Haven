@@ -45,7 +45,7 @@ type connection struct {
 	cancel context.CancelFunc
 }
 
-func NewConnection(upstreamCtx context.Context, logger zerolog.Logger, haven types.Haven, locator types.Locator, conn goSrt.Conn, server types.ProtocolServer, config goSrt.Config) (types.ConnectionSRT, error) {
+func NewConnection(upstreamCtx context.Context, logger zerolog.Logger, haven types.Haven, conn goSrt.Conn, server types.ProtocolServer, config goSrt.Config) (types.ConnectionSRT, error) {
 	ctx, cancel := context.WithCancel(upstreamCtx)
 	c := &connection{
 		logger: logger,

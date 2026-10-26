@@ -10,8 +10,6 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
-	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -20,52 +18,10 @@ import (
 
 const (
 	defaultPort = 8080
-
-	RoleFlagship = "flagship"
-	RoleEscort   = "escort"
 )
 
 //go:embed static
 var staticFiles embed.FS
-
-type Config struct {
-	Port    int
-	Address string
-	Role    string
-
-	// Username and Password protect the dashboard with basic auth, it is open if Password is empty
-	Username string
-	Password string
-}
-
-// ConfigFromEnv reads DASHBOARD_PORT (default 80), DASHBOARD_USER and DASHBOARD_PASSWORD.
-func ConfigFromEnv(role string) (Config, error) {
-	config := Config{
-		Port:     defaultPort,
-		Address:  "0.0.0.0",
-		Role:     role,
-		Username: os.Getenv("DASHBOARD_USER"),
-		Password: os.Getenv("DASHBOARD_PASSWORD"),
-	}
-	if port := os.Getenv("DASHBOARD_PORT"); port != "" {
-		p, err := strconv.Atoi(port)
-		if err != nil {
-			return Config{}, fmt.Errorf("invalid DASHBOARD_PORT '%s': %w", port, err)
-		}
-		config.Port = p
-	}
-	return config, config.Validate()
-}
-
-func (c Config) Validate() error {
-	if c.Port < 0 || c.Port > 65535 {
-		return fmt.Errorf("invalid port: %d", c.Port)
-	}
-	if c.Role != RoleFlagship && c.Role != RoleEscort {
-		return fmt.Errorf("invalid role: '%s'", c.Role)
-	}
-	return nil
-}
 
 // Section is one panel of the dashboard. Key selects the renderer in static/app.js, sections without one are shown as raw JSON.
 type Section struct {
@@ -84,9 +40,9 @@ type sectionStatus struct {
 }
 
 type status struct {
-	Role     string          `json:"role"`
-	UptimeMs int64           `json:"uptime_ms"`
-	Sections []sectionStatus `json:"sections"`
+	IsFlagship bool            `json:"role"`
+	UptimeMs   int64           `json:"uptime_ms"`
+	Sections   []sectionStatus `json:"sections"`
 }
 
 type Server struct {
@@ -157,9 +113,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serveStatus(w http.ResponseWriter, _ *http.Request) {
 	st := status{
-		Role:     s.config.Role,
-		UptimeMs: time.Since(s.startedAt).Milliseconds(),
-		Sections: make([]sectionStatus, 0, len(s.sections)),
+		IsFlagship: s.config.IsFlagship,
+		UptimeMs:   time.Since(s.startedAt).Milliseconds(),
+		Sections:   make([]sectionStatus, 0, len(s.sections)),
 	}
 	for _, section := range s.sections {
 		st.Sections = append(st.Sections, sectionStatus{Key: section.Key, Data: section.Stats()})

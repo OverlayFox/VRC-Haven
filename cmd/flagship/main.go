@@ -28,7 +28,7 @@ func main() {
 	}
 	logger.Info().Msg("Starting in Flagship mode")
 
-	profiling.StartFromEnv(logger)
+	profiling.Start(logger)
 
 	// Escorts and viewers need both, they are part of the SRT stream ID and the HLS path
 	passphrase := os.Getenv("HAVEN_PASSPHRASE")

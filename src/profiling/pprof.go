@@ -3,19 +3,19 @@ package profiling
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"net/http/pprof"
-	"os"
+	"strconv"
 	"time"
 
 	"github.com/rs/zerolog"
 )
 
-// StartFromEnv serves the profiles on PPROF_ADDR (e.g. localhost:6060) under /debug/pprof/, it does nothing if PPROF_ADDR is empty.
+// Start serves the profiles on PPROF_ADDR (e.g. localhost:6060) under /debug/pprof/, it does nothing if PPROF_ADDR is empty.
 // The profiles expose stack traces and memory contents, so keep the address off public interfaces.
-func StartFromEnv(logger zerolog.Logger) {
-	address := os.Getenv("PPROF_ADDR")
-	if address == "" {
+func Start(logger zerolog.Logger, config Config) {
+	if config.Address == "" {
 		return
 	}
 	logger = logger.With().Str("component", "pprof").Logger()
@@ -27,9 +27,10 @@ func StartFromEnv(logger zerolog.Logger) {
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
+	addr := net.JoinHostPort(config.Address, strconv.Itoa(config.Port))
 	// No write timeout, CPU profiles and traces stream for as long as ?seconds= asks
 	server := &http.Server{
-		Addr:              address,
+		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
@@ -38,5 +39,5 @@ func StartFromEnv(logger zerolog.Logger) {
 			logger.Error().Err(err).Msg("pprof server failed")
 		}
 	}()
-	logger.Info().Str("address", address).Msg("pprof server started")
+	logger.Info().Str("address", addr).Msg("pprof server started")
 }
