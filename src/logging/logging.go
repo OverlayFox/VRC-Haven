@@ -18,25 +18,14 @@ const timeFormat = "2006-01-02T15:04:05.000Z07:00"
 // New returns the root logger for node.
 // LOG_LEVEL sets the level (trace, debug, info, warn, error, default info).
 // LOG_FORMAT=json writes one JSON object per line for jq or log shippers, otherwise lines are console text, colored only on a terminal.
-func New(node string) zerolog.Logger {
+func New(node string, level zerolog.Level) zerolog.Logger {
 	zerolog.TimeFieldFormat = timeFormat //nolint:reassign // zerolog only takes the timestamp format globally
 
 	var out io.Writer = os.Stdout
 	if !strings.EqualFold(os.Getenv("LOG_FORMAT"), "json") {
 		out = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: timeFormat, NoColor: !isTerminal(os.Stdout)}
 	}
-
 	logger := zerolog.New(out).With().Timestamp().Str("node", node).Logger()
-
-	level := zerolog.InfoLevel
-	if env := os.Getenv("LOG_LEVEL"); env != "" {
-		parsed, err := zerolog.ParseLevel(strings.ToLower(env))
-		if err != nil {
-			logger.Warn().Str("log_level", env).Msg("Unknown LOG_LEVEL, using info")
-		} else {
-			level = parsed
-		}
-	}
 	return logger.Level(level)
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -23,7 +24,6 @@ type Haven struct {
 
 	streamID   string
 	passphrase string
-	publicIP   net.Addr
 	location   types.Location // location of the haven
 
 	publisher types.ConnectionSRT               // publisher provides the main stream
@@ -44,7 +44,7 @@ type Haven struct {
 	cancel context.CancelFunc
 }
 
-func NewHaven(upstreamCtx context.Context, logger zerolog.Logger, locator types.Locator, passphrase, streamID string) (types.Haven, error) {
+func NewHaven(upstreamCtx context.Context, logger zerolog.Logger, config Config, locator types.Locator, passphrase, streamID string) (types.Haven, error) {
 	ctx, cancel := context.WithCancel(upstreamCtx)
 	h := &Haven{
 		logger: logger.With().Str("component", "haven").Logger(),
@@ -62,16 +62,15 @@ func NewHaven(upstreamCtx context.Context, logger zerolog.Logger, locator types.
 		cancel: cancel,
 	}
 	if locator != nil {
-		pubIP, err := GetPublicIP(h.ctx, h.logger)
-		if err == nil {
-			h.logger.Debug().Str("haven_ip", pubIP.String()).Msg("got public IP for haven")
-			location, err := h.locator.GetLocation(pubIP)
-			if err != nil {
-				h.logger.Warn().Err(err).Msg("failed to get havens location, redirection might not work correctly")
-			} else {
-				h.location = location
-				h.publicIP = pubIP
-			}
+		addr, err := netip.ParseAddr(config.PublicAddress)
+		if err != nil {
+			h.logger.Warn().Err(err).Msg("failed to parse public IP address, redirection might not work correctly")
+		}
+		location, err := h.locator.GetLocation(&net.IPAddr{IP: addr.AsSlice()})
+		if err != nil {
+			h.logger.Warn().Err(err).Msg("failed to get havens location, redirection might not work correctly")
+		} else {
+			h.location = location
 		}
 	}
 

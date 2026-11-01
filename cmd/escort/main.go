@@ -3,16 +3,17 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"strconv"
-	"time"
+	"strings"
 
-	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
 
+	"github.com/OverlayFox/VRC-Haven/src"
 	"github.com/OverlayFox/VRC-Haven/src/dashboard"
-	"github.com/OverlayFox/VRC-Haven/src/haven"
+	havenPkg "github.com/OverlayFox/VRC-Haven/src/haven"
 	"github.com/OverlayFox/VRC-Haven/src/logging"
 	"github.com/OverlayFox/VRC-Haven/src/profiling"
 	"github.com/OverlayFox/VRC-Haven/src/protocols/hls"
@@ -22,73 +23,39 @@ import (
 var logger zerolog.Logger
 
 func main() {
-	envErr := godotenv.Load()
-	logger = logging.New("escort")
-	if envErr != nil && !os.IsNotExist(envErr) {
-		logger.Panic().Err(envErr).Msg("Error loading .env file")
+	config, err := src.LoadConfig(false)
+	if err != nil {
+		panic(fmt.Errorf("failed to parse config: %w", err))
 	}
+	if err := config.Validate(); err != nil {
+		panic(fmt.Errorf("failed to validate config: %w", err))
+	}
+	logger = logging.New("escort", config.Log.Level)
 	logger.Info().Msg("Starting in Escort mode")
 
-	profiling.StartFromEnv(logger)
-
-	// Both have to match the flagship, they are part of the SRT stream ID and the HLS path viewers are redirected to
-	passphrase := os.Getenv("HAVEN_PASSPHRASE")
-	if passphrase == "" {
-		passphrase = "thisisaverysecurepassphrase"
-	}
-	streamID := os.Getenv("HAVEN_STREAM_ID")
-	if streamID == "" {
-		streamID = "test"
-	}
-
-	hlsPort := 8555
-	if port := os.Getenv("HLS_PORT"); port != "" {
-		p, err := strconv.Atoi(port)
-		if err != nil {
-			logger.Panic().Err(err).Msgf("Invalid HLS_PORT '%s'", port)
-			return
-		}
-		hlsPort = p
-	}
+	profiling.Start(logger, config.Profiler)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	haven, err := haven.NewHaven(ctx, logger, nil, passphrase, streamID)
+	haven, err := havenPkg.NewHaven(ctx, logger, config.Haven, nil, config.SRT.Passphrase, config.SRT.StreamID)
 	if err != nil {
 		logger.Panic().Err(err).Msg("Failed to create haven")
 		return
 	}
 
-	hlsConf := hls.Config{
-		Port:           hlsPort,
-		Address:        "0.0.0.0",
-		Passphrase:     passphrase,
-		IsFlagship:     false,
-		WriteTimeout:   10 * time.Second,
-		WriteQueueSize: 8192,
-	}
-	hlsServer, err := hls.New(ctx, logger, hlsConf, haven, nil)
+	hlsServer, err := hls.New(ctx, logger, config.HLS, haven, nil)
 	if err != nil {
 		logger.Panic().Err(err).Msg("Failed to create HLS server")
 		return
 	}
 	hlsServer.Start()
 
-	srtConfig := srt.Config{
-		Address: "0.0.0.0",
-		Port:    8891,
-	}
-	srtServer, err := srt.New(ctx, logger, srtConfig, haven, nil)
+	srtServer, err := srt.New(ctx, logger, config.SRT, haven, nil)
 	if err != nil {
 		logger.Panic().Err(err).Msg("Failed to create SRT server")
 		return
 	}
 
-	dashboardConf, err := dashboard.ConfigFromEnv(dashboard.RoleEscort)
-	if err != nil {
-		logger.Panic().Err(err).Msg("Invalid dashboard configuration")
-		return
-	}
-	dashboardServer, err := dashboard.New(logger, dashboardConf,
+	dashboardServer, err := dashboard.New(logger, config.Dashboard,
 		dashboard.NewSection("ingest", haven.PublisherStats),
 		dashboard.NewSection("hls", hlsServer.Stats),
 	)
@@ -98,19 +65,18 @@ func main() {
 	}
 	dashboardServer.Start()
 
-	// The flagship redirects viewers to this address, a bare ":port" makes it use the IP this escort connects from
-	hlsPublicAddr := os.Getenv("HLS_PUBLIC_ADDR")
-	if hlsPublicAddr == "" {
-		hlsPublicAddr = fmt.Sprintf(":%d", hlsConf.Port)
+	if strings.TrimSpace(config.Haven.PublicAddress) == "" {
+		pubAddr, err := havenPkg.GetPublicIP(ctx)
+		if err != nil {
+			logger.Panic().Err(err).Msg("failed to get public IP address for escort, consider manually populating the `HAVEN_PUBLIC_ADDRESS` field")
+		}
+		config.Haven.PublicAddress = pubAddr.String()
 	}
 
-	// SRT address of the flagship to pull the stream from
-	flagshipAddr := os.Getenv("FLAGSHIP_SRT_ADDR")
-	if flagshipAddr == "" {
-		flagshipAddr = "127.0.0.1:8890"
-	}
-
-	err = srtServer.Dial(flagshipAddr, srt.EscortStreamID(haven.GetStreamID(), hlsPublicAddr), passphrase)
+	flagshipAddr := net.JoinHostPort(config.Haven.FlagshipAddress, strconv.Itoa(config.Haven.FlagshipPort))
+	hlsPublicAddr := net.JoinHostPort(config.Haven.PublicAddress, strconv.Itoa(config.Haven.PublicPort))
+	streamID := srt.EscortStreamID(haven.GetStreamID(), hlsPublicAddr)
+	err = srtServer.Dial(flagshipAddr, streamID, config.SRT.Passphrase)
 	if err != nil {
 		logger.Panic().Err(err).Msg("Failed to dial SRT server")
 		return

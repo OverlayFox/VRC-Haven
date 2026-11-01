@@ -2,16 +2,16 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
-	"time"
 
-	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
 
+	"github.com/OverlayFox/VRC-Haven/src"
 	"github.com/OverlayFox/VRC-Haven/src/dashboard"
 	"github.com/OverlayFox/VRC-Haven/src/geo"
-	"github.com/OverlayFox/VRC-Haven/src/haven"
+	havenPkg "github.com/OverlayFox/VRC-Haven/src/haven"
 	"github.com/OverlayFox/VRC-Haven/src/logging"
 	"github.com/OverlayFox/VRC-Haven/src/profiling"
 	"github.com/OverlayFox/VRC-Haven/src/protocols/hls"
@@ -21,75 +21,47 @@ import (
 var logger zerolog.Logger
 
 func main() {
-	envErr := godotenv.Load()
-	logger = logging.New("flagship")
-	if envErr != nil && !os.IsNotExist(envErr) {
-		logger.Panic().Err(envErr).Msg("Error loading .env file")
+	config, err := src.LoadConfig(true)
+	if err != nil {
+		panic(fmt.Errorf("failed to parse config: %w", err))
 	}
+	if err := config.Validate(); err != nil {
+		panic(fmt.Errorf("failed to validate config: %w", err))
+	}
+
+	logger = logging.New("flagship", config.Log.Level)
 	logger.Info().Msg("Starting in Flagship mode")
 
-	profiling.StartFromEnv(logger)
-
-	// Escorts and viewers need both, they are part of the SRT stream ID and the HLS path
-	passphrase := os.Getenv("HAVEN_PASSPHRASE")
-	if passphrase == "" {
-		passphrase = "thisisaverysecurepassphrase"
-	}
-	streamID := os.Getenv("HAVEN_STREAM_ID")
-	if streamID == "" {
-		streamID = "test"
-	}
+	profiling.Start(logger, config.Profiler)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	geoConf := geo.Config{
-		LicenseKey: os.Getenv("MAX_MIND_LICENSE_KEY"),
-		AccountID:  os.Getenv("MAX_MIND_ACCOUNT_ID"),
-		Dir:        "./GeoDatabase",
-	}
-	locator, err := geo.NewLocator(ctx, logger, geoConf)
+	locator, err := geo.NewLocator(ctx, logger, config.Geo)
 	if err != nil {
 		logger.Panic().Err(err).Msg("Failed to create geo locator")
 		return
 	}
 
-	haven, err := haven.NewHaven(ctx, logger, locator, passphrase, streamID)
+	haven, err := havenPkg.NewHaven(ctx, logger, config.Haven, locator, config.SRT.Passphrase, config.SRT.StreamID)
 	if err != nil {
 		logger.Panic().Err(err).Msg("Failed to create haven")
 		return
 	}
 
-	hlsConf := hls.Config{
-		Port:           8554,
-		Address:        "0.0.0.0",
-		Passphrase:     passphrase,
-		IsFlagship:     true,
-		WriteTimeout:   10 * time.Second,
-		WriteQueueSize: 8192,
-	}
-	hlsServer, err := hls.New(ctx, logger, hlsConf, haven, locator)
+	hlsServer, err := hls.New(ctx, logger, config.HLS, haven, locator)
 	if err != nil {
 		logger.Panic().Err(err).Msg("Failed to create HLS server")
 		return
 	}
 	hlsServer.Start()
 
-	srtConfig := srt.Config{
-		Address: "0.0.0.0",
-		Port:    8890,
-	}
-	srtServer, err := srt.New(ctx, logger, srtConfig, haven, locator)
+	srtServer, err := srt.New(ctx, logger, config.SRT, haven, locator)
 	if err != nil {
 		logger.Panic().Err(err).Msg("Failed to create SRT server")
 		return
 	}
 	srtServer.Start()
 
-	dashboardConf, err := dashboard.ConfigFromEnv(dashboard.RoleFlagship)
-	if err != nil {
-		logger.Panic().Err(err).Msg("Invalid dashboard configuration")
-		return
-	}
-	dashboardServer, err := dashboard.New(logger, dashboardConf,
+	dashboardServer, err := dashboard.New(logger, config.Dashboard,
 		dashboard.NewSection("ingest", haven.PublisherStats),
 		dashboard.NewSection("escorts", haven.EscortStats),
 		dashboard.NewSection("redirects", hlsServer.RedirectStats),
