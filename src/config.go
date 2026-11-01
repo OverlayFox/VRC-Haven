@@ -3,7 +3,10 @@ package src
 import (
 	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/knadh/koanf/providers/env/v2"
@@ -11,6 +14,7 @@ import (
 	"github.com/knadh/koanf/v2"
 
 	"github.com/OverlayFox/VRC-Haven/src/dashboard"
+	"github.com/OverlayFox/VRC-Haven/src/geo"
 	"github.com/OverlayFox/VRC-Haven/src/haven"
 	"github.com/OverlayFox/VRC-Haven/src/logging"
 	"github.com/OverlayFox/VRC-Haven/src/profiling"
@@ -30,6 +34,7 @@ type Config struct {
 	HLS       hls.Config
 	Dashboard dashboard.Config
 	Haven     haven.Config
+	Geo       geo.Config
 }
 
 func DefaultConfig() Config {
@@ -80,6 +85,25 @@ func LoadConfig(isFlagship bool) (*Config, error) {
 		return nil, err
 	}
 	return &config, nil
+}
+
+// WriteEnvExample writes every config env var with its default value.
+func WriteEnvExample(w io.Writer) error {
+	k := koanf.New(".")
+	if err := k.Load(structs.Provider(DefaultConfig(), "koanf"), nil); err != nil {
+		return err
+	}
+
+	names, err := envNames(k)
+	if err != nil {
+		return err
+	}
+	for _, name := range slices.Sorted(maps.Keys(names)) {
+		if _, err := fmt.Fprintf(w, "%s=%v\n", name, k.Get(names[name])); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Helpers
