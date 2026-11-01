@@ -3,13 +3,13 @@ package haven
 import "fmt"
 
 type Config struct {
-	PublicAddress string `konf:"public_address"`
-	PublicPort    int    `konf:"public_port"`
+	PublicAddress string `koanf:"public_address"`
+	PublicPort    int    `koanf:"public_port"`
 
-	FlagshipAddress string `konf:"flagship_address"`
-	FlagshipPort    int    `konf:"flagship_port"`
+	FlagshipAddress string `koanf:"flagship_address"`
+	FlagshipPort    int    `koanf:"flagship_port"`
 
-	IsFlagship bool `konf:"-"`
+	IsFlagship bool `koanf:"-"`
 }
 
 func (c *Config) Validate() error {

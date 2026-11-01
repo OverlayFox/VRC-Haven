@@ -11,10 +11,10 @@ type Config struct {
 
 	IsFlagship bool `koanf:"-"`
 
-	ReadTimeout    time.Duration
-	ReadQueueSize  int
-	WriteTimeout   time.Duration
-	WriteQueueSize int
+	ReadTimeout    time.Duration `koanf:"read_timeout"`
+	ReadQueueSize  int           `koanf:"read_queue_size"`
+	WriteTimeout   time.Duration `koanf:"write_timeout"`
+	WriteQueueSize int           `koanf:"write_queue_size"`
 }
 
 func (c *Config) Validate() error {
@@ -28,7 +28,7 @@ func (c *Config) Validate() error {
 func (c *Config) SetDefaults() {
 	*c = Config{
 		Port:    8890,
-		Address: "0.0.0.0",
+		Address: "127.0.0.1",
 
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,

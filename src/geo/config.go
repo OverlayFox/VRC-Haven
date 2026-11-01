@@ -9,8 +9,8 @@ import (
 const defaultDBDir = "./geoip2Files"
 
 type Config struct {
-	LicenseKey string
-	AccountID  string
+	LicenseKey string `koanf:"license_key"`
+	AccountID  string `koanf:"account_id"`
 	Dir        string `koanf:"db_directory"`
 }
 
