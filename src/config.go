@@ -117,7 +117,7 @@ func WriteEnvExample(w io.Writer) error {
 			}
 			empty = false
 			if s.required != "" {
-				blockSb113.WriteString(s.name + "=\n")
+				fmt.Fprintf(&blockSb113, "%s=\n", s.name)
 				continue
 			}
 			fmt.Fprintf(&blockSb113, "%s=%v\n", s.name, s.value.Interface())
