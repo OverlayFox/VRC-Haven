@@ -10,62 +10,14 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
-	"os"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 )
 
-const (
-	defaultPort = 8080
-
-	RoleFlagship = "flagship"
-	RoleEscort   = "escort"
-)
-
 //go:embed static
 var staticFiles embed.FS
-
-type Config struct {
-	Port    int
-	Address string
-	Role    string
-
-	// Username and Password protect the dashboard with basic auth, it is open if Password is empty
-	Username string
-	Password string
-}
-
-// ConfigFromEnv reads DASHBOARD_PORT (default 80), DASHBOARD_USER and DASHBOARD_PASSWORD.
-func ConfigFromEnv(role string) (Config, error) {
-	config := Config{
-		Port:     defaultPort,
-		Address:  "0.0.0.0",
-		Role:     role,
-		Username: os.Getenv("DASHBOARD_USER"),
-		Password: os.Getenv("DASHBOARD_PASSWORD"),
-	}
-	if port := os.Getenv("DASHBOARD_PORT"); port != "" {
-		p, err := strconv.Atoi(port)
-		if err != nil {
-			return Config{}, fmt.Errorf("invalid DASHBOARD_PORT '%s': %w", port, err)
-		}
-		config.Port = p
-	}
-	return config, config.Validate()
-}
-
-func (c Config) Validate() error {
-	if c.Port < 0 || c.Port > 65535 {
-		return fmt.Errorf("invalid port: %d", c.Port)
-	}
-	if c.Role != RoleFlagship && c.Role != RoleEscort {
-		return fmt.Errorf("invalid role: '%s'", c.Role)
-	}
-	return nil
-}
 
 // Section is one panel of the dashboard. Key selects the renderer in static/app.js, sections without one are shown as raw JSON.
 type Section struct {
@@ -84,9 +36,9 @@ type sectionStatus struct {
 }
 
 type status struct {
-	Role     string          `json:"role"`
-	UptimeMs int64           `json:"uptime_ms"`
-	Sections []sectionStatus `json:"sections"`
+	IsFlagship bool            `json:"role"`
+	UptimeMs   int64           `json:"uptime_ms"`
+	Sections   []sectionStatus `json:"sections"`
 }
 
 type Server struct {
@@ -102,9 +54,6 @@ type Server struct {
 }
 
 func New(logger zerolog.Logger, config Config, sections ...Section) (*Server, error) {
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
 	static, err := fs.Sub(staticFiles, "static")
 	if err != nil {
 		return nil, err
@@ -138,7 +87,7 @@ func (s *Server) Start() {
 	}
 	s.wg.Go(func() {
 		if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.logger.Error().Err(err).Msg("Dashboard server failed, ports below 1024 need root or CAP_NET_BIND_SERVICE")
+			s.logger.Error().Err(err).Msg("Dashboard server failed")
 		}
 	})
 	s.logger.Info().Str("address", s.config.Address).Int("port", s.config.Port).Msg("Dashboard server started")
@@ -157,9 +106,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serveStatus(w http.ResponseWriter, _ *http.Request) {
 	st := status{
-		Role:     s.config.Role,
-		UptimeMs: time.Since(s.startedAt).Milliseconds(),
-		Sections: make([]sectionStatus, 0, len(s.sections)),
+		IsFlagship: s.config.IsFlagship,
+		UptimeMs:   time.Since(s.startedAt).Milliseconds(),
+		Sections:   make([]sectionStatus, 0, len(s.sections)),
 	}
 	for _, section := range s.sections {
 		st.Sections = append(st.Sections, sectionStatus{Key: section.Key, Data: section.Stats()})

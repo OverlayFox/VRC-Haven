@@ -6,14 +6,11 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
-	"net"
 	"net/http"
 	"net/netip"
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/rs/zerolog"
 )
 
 const maxIPResponseSize = 64 // longest textual IPv6 address is 45 chars, leave room for surrounding whitespace.
@@ -28,55 +25,50 @@ var (
 	}
 )
 
-func GetPublicIP(ctx context.Context, logger zerolog.Logger) (net.Addr, error) {
+func GetPublicIP(ctx context.Context) (netip.Addr, error) {
 	// shuffle a copy so no single provider is always hit first and the shared slice is never mutated
 	order := slices.Clone(providers)
 	rand.Shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] }) //nolint:gosec // provider order only spreads load, predictability has no security impact
 	for _, provider := range order {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return netip.Addr{}, err
 		}
 		ip, err := doRequest(ctx, provider)
 		if err == nil {
 			return ip, nil
 		}
-		logger.Warn().Err(err).Str("provider", provider).Msg("failed to get IP from provider")
 	}
-	return nil, errors.New("could not get any IP from providers")
+	return netip.Addr{}, errors.New("could not get any IP from providers")
 }
 
-func doRequest(ctx context.Context, provider string) (net.Addr, error) {
+func doRequest(ctx context.Context, provider string) (netip.Addr, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("https://%s", provider), nil)
 	if err != nil {
-		return nil, err
+		return netip.Addr{}, err
 	}
 	resp, err := ipClient.Do(req)
 	if err != nil {
-		return nil, err
+		return netip.Addr{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status from provider '%s': %s", provider, resp.Status)
+		return netip.Addr{}, fmt.Errorf("unexpected status from provider '%s': %s", provider, resp.Status)
 	}
 
 	// read one byte past the limit so oversized responses are rejected instead of silently truncated
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxIPResponseSize+1))
 	if err != nil {
-		return nil, err
+		return netip.Addr{}, err
 	}
 	if len(body) > maxIPResponseSize {
-		return nil, fmt.Errorf("response from provider '%s' exceeds %d bytes", provider, maxIPResponseSize)
+		return netip.Addr{}, fmt.Errorf("response from provider '%s' exceeds %d bytes", provider, maxIPResponseSize)
 	}
 
-	addr, err := parsePublicIP(string(body))
-	if err != nil {
-		return nil, fmt.Errorf("invalid IP from provider '%s': %w", provider, err)
-	}
-	return &net.IPAddr{IP: addr.AsSlice()}, nil
+	return parsePublicIP(string(body))
 }
 
 func parsePublicIP(raw string) (netip.Addr, error) {

@@ -24,23 +24,14 @@ import (
 
 const (
 	defaultTimeout = 30 * time.Second
-	defaultDBDir   = "./geoip2Files"
 	dbMaxAge       = 7 * 24 * time.Hour // 1 week
 	downloadURL    = "https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz"
 )
 
-type Config struct {
-	LicenseKey string
-	AccountID  string
-	Dir        string
-}
-
 // Locator handles IP-to-Location lookups via the local Database.
 type Locator struct {
-	logger     zerolog.Logger
-	dbDir      string
-	licenseKey string
-	accountID  string
+	config Config
+	logger zerolog.Logger
 
 	db    *geoip2.Reader
 	dbMtx sync.RWMutex
@@ -54,16 +45,12 @@ type Locator struct {
 func NewLocator(upstreamCtx context.Context, logger zerolog.Logger, config Config) (types.Locator, error) {
 	ctx, cancel := context.WithCancel(upstreamCtx)
 	l := &Locator{
+		config: config,
 		logger: logger.With().Str("component", "geo").Logger(),
-		dbDir:  defaultDBDir,
 
 		ctx:    ctx,
 		cancel: cancel,
 	}
-	l.dbDir = config.Dir
-	l.licenseKey = config.LicenseKey
-	l.accountID = config.AccountID
-
 	return l, l.loadDatabase()
 }
 
@@ -120,7 +107,7 @@ func (l *Locator) Close() error {
 
 // loadDatabase finds the newest .mmdb file in the dbDir, checks its age, and loads it if valid.
 func (l *Locator) loadDatabase() error {
-	entries, err := os.ReadDir(l.dbDir)
+	entries, err := os.ReadDir(l.config.Dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return l.updateDatabase()
@@ -141,7 +128,7 @@ func (l *Locator) loadDatabase() error {
 		}
 		if info.ModTime().After(newestTime) {
 			newestTime = info.ModTime()
-			newestFile = filepath.Join(l.dbDir, e.Name())
+			newestFile = filepath.Join(l.config.Dir, e.Name())
 		}
 	}
 
@@ -149,7 +136,7 @@ func (l *Locator) loadDatabase() error {
 		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".mmdb") {
 			continue
 		}
-		fullPath := filepath.Join(l.dbDir, e.Name())
+		fullPath := filepath.Join(l.config.Dir, e.Name())
 		if fullPath == newestFile {
 			continue
 		}
@@ -200,12 +187,12 @@ func (l *Locator) updateDatabase() error {
 		return fmt.Errorf("failed to extract .mmdb file: %w", err)
 	}
 
-	if err := os.MkdirAll(l.dbDir, 0o750); err != nil {
+	if err := os.MkdirAll(l.config.Dir, 0o750); err != nil {
 		return fmt.Errorf("failed to make directory: %w", err)
 	}
 
 	filename := fmt.Sprintf("%s_bd9lite.mmdb", time.Now().Format("2006_01_02"))
-	fullPath := filepath.Join(l.dbDir, filename)
+	fullPath := filepath.Join(l.config.Dir, filename)
 	if err := os.WriteFile(fullPath, mmdbBytes, 0o600); err != nil {
 		return fmt.Errorf("failed to write .mmdb file: %w", err)
 	}
@@ -225,7 +212,7 @@ func (l *Locator) downloadDatabase() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.SetBasicAuth(l.accountID, l.licenseKey)
+	req.SetBasicAuth(l.config.AccountID, l.config.LicenseKey)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {

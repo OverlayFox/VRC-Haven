@@ -23,11 +23,6 @@ const (
 	rttProbeDuration = 1 * time.Second
 )
 
-type Config struct {
-	Address string
-	Port    int
-}
-
 type server struct {
 	logger zerolog.Logger
 	config Config
@@ -153,7 +148,7 @@ func (s *server) Dial(address string, streamID, passphrase string) error {
 		}
 	}
 
-	connection, err := NewConnection(s.ctx, s.logger, s.haven, s.locator, conn, s, config)
+	connection, err := NewConnection(s.ctx, s.logger, s.haven, conn, s, config)
 	if err != nil {
 		err = conn.Close()
 		if err != nil {

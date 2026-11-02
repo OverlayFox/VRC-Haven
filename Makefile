@@ -63,3 +63,8 @@ pprof-diff:
 	go tool pprof -http=:$(PPROF_DIFF_HTTP_PORT) \
 		-diff_base=$$(ls -t $(PPROF_DIR)/$(PPROF_PROFILE)-*.pb.gz | sed -n 2p) \
 		$$(ls -t $(PPROF_DIR)/$(PPROF_PROFILE)-*.pb.gz | head -n 1)
+
+.PHONY: gen-env-example
+gen-env-example:
+	go run ./cmd/envexample > .env.example.tmp && mv .env.example.tmp .env.example
+
