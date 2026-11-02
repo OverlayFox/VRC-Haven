@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- changed config system to now use `koanf` and be able to set defaults, distinguish between flagship, escort and shared required variables and validate variables more easily.
+
 ## [alpha-0.0.1] - 2026-10-22
 
 ### Added
