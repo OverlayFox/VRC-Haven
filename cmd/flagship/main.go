@@ -61,17 +61,19 @@ func main() {
 	}
 	srtServer.Start()
 
-	dashboardServer, err := dashboard.New(logger, config.Dashboard,
-		dashboard.NewSection("ingest", haven.PublisherStats),
-		dashboard.NewSection("escorts", haven.EscortStats),
-		dashboard.NewSection("redirects", hlsServer.RedirectStats),
-		dashboard.NewSection("hls", hlsServer.Stats),
-	)
-	if err != nil {
-		logger.Panic().Err(err).Msg("Failed to create dashboard server")
-		return
+	if config.Dashboard.Username != "" && config.Dashboard.Password != "" {
+		dashboardServer, err := dashboard.New(logger, config.Dashboard,
+			dashboard.NewSection("ingest", haven.PublisherStats),
+			dashboard.NewSection("escorts", haven.EscortStats),
+			dashboard.NewSection("redirects", hlsServer.RedirectStats),
+			dashboard.NewSection("hls", hlsServer.Stats),
+		)
+		if err != nil {
+			logger.Panic().Err(err).Msg("Failed to create dashboard server")
+			return
+		}
+		dashboardServer.Start()
 	}
-	dashboardServer.Start()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)

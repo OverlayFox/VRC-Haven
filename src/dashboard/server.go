@@ -16,10 +16,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const (
-	defaultPort = 8080
-)
-
 //go:embed static
 var staticFiles embed.FS
 
@@ -58,9 +54,6 @@ type Server struct {
 }
 
 func New(logger zerolog.Logger, config Config, sections ...Section) (*Server, error) {
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
 	static, err := fs.Sub(staticFiles, "static")
 	if err != nil {
 		return nil, err

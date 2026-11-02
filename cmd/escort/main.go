@@ -55,15 +55,17 @@ func main() {
 		return
 	}
 
-	dashboardServer, err := dashboard.New(logger, config.Dashboard,
-		dashboard.NewSection("ingest", haven.PublisherStats),
-		dashboard.NewSection("hls", hlsServer.Stats),
-	)
-	if err != nil {
-		logger.Panic().Err(err).Msg("Failed to create dashboard server")
-		return
+	if config.Dashboard.Username != "" && config.Dashboard.Password != "" {
+		dashboardServer, err := dashboard.New(logger, config.Dashboard,
+			dashboard.NewSection("ingest", haven.PublisherStats),
+			dashboard.NewSection("hls", hlsServer.Stats),
+		)
+		if err != nil {
+			logger.Panic().Err(err).Msg("Failed to create dashboard server")
+			return
+		}
+		dashboardServer.Start()
 	}
-	dashboardServer.Start()
 
 	if strings.TrimSpace(config.Haven.PublicAddress) == "" {
 		pubAddr, err := havenPkg.GetPublicIP(ctx)
@@ -71,6 +73,9 @@ func main() {
 			logger.Panic().Err(err).Msg("failed to get public IP address for escort, consider manually populating the `HAVEN_PUBLIC_ADDRESS` field")
 		}
 		config.Haven.PublicAddress = pubAddr.String()
+	}
+	if config.Haven.PublicPort == 0 {
+		config.Haven.PublicPort = config.HLS.Port
 	}
 
 	flagshipAddr := net.JoinHostPort(config.Haven.FlagshipAddress, strconv.Itoa(config.Haven.FlagshipPort))

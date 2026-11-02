@@ -27,7 +27,7 @@ func (c *Config) Validate() error {
 
 func (c *Config) SetDefaults() {
 	*c = Config{
-		Port:    8890,
+		Port:    8080,
 		Address: "127.0.0.1",
 
 		ReadTimeout:  10 * time.Second,

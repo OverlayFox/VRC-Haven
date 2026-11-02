@@ -6,15 +6,20 @@ import (
 	"os"
 )
 
-const defaultDBDir = "./geoip2Files"
+const defaultDBDir = "./geoDatabases"
 
 type Config struct {
-	LicenseKey string `koanf:"license_key"`
-	AccountID  string `koanf:"account_id"`
+	LicenseKey string `koanf:"license_key"  required:"flagship"`
+	AccountID  string `koanf:"account_id"   required:"flagship"`
 	Dir        string `koanf:"db_directory"`
+
+	IsFlagship bool `koanf:"-"`
 }
 
 func (c *Config) Validate() error {
+	if !c.IsFlagship {
+		return nil
+	}
 	if c.LicenseKey == "" {
 		return errors.New("license key is required")
 	}

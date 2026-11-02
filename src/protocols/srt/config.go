@@ -10,8 +10,8 @@ type Config struct {
 	Port    int
 	Address string
 
-	Passphrase string
-	StreamID   string `koanf:"stream_id"`
+	Passphrase string `required:"always"`
+	StreamID   string `required:"always" koanf:"stream_id"`
 
 	IsFlagship bool `koanf:"-"`
 }

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -81,29 +80,55 @@ func LoadConfig(isFlagship bool) (*Config, error) {
 	}
 	setFlagship(&config, isFlagship)
 
+	if err := checkRequired(&config, isFlagship); err != nil {
+		return nil, err
+	}
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 	return &config, nil
 }
 
-// WriteEnvExample writes every config env var with its default value.
+// WriteEnvExample writes every config env var, grouped by which binary needs it.
+//
+// Required vars are left blank and optional vars are written with their value from SetDefaults().
 func WriteEnvExample(w io.Writer) error {
-	k := koanf.New(".")
-	if err := k.Load(structs.Provider(DefaultConfig(), "koanf"), nil); err != nil {
-		return err
-	}
-
-	names, err := envNames(k)
+	defaults := DefaultConfig()
+	list, err := settings(&defaults)
 	if err != nil {
 		return err
 	}
-	for _, name := range slices.Sorted(maps.Keys(names)) {
-		if _, err := fmt.Fprintf(w, "%s=%v\n", name, k.Get(names[name])); err != nil {
-			return err
+	slices.SortFunc(list, func(a, b setting) int { return strings.Compare(a.name, b.name) })
+
+	sections := []struct{ title, required string }{
+		{"Required by both flagship and escort", requiredAlways},
+		{"Required by flagship only", requiredFlagship},
+		{"Required by escort only", requiredEscort},
+		{"Optional, shown with their default values", ""},
+	}
+	var blocks []string
+	for _, section := range sections {
+		block := "# " + section.title + "\n"
+		empty := true
+		var blockSb113 strings.Builder
+		for _, s := range list {
+			if s.required != section.required {
+				continue
+			}
+			empty = false
+			if s.required != "" {
+				blockSb113.WriteString(s.name + "=\n")
+				continue
+			}
+			fmt.Fprintf(&blockSb113, "%s=%v\n", s.name, s.value.Interface())
+		}
+		block += blockSb113.String()
+		if !empty {
+			blocks = append(blocks, block)
 		}
 	}
-	return nil
+	_, err = io.WriteString(w, strings.Join(blocks, "\n"))
+	return err
 }
 
 // Helpers
@@ -135,10 +160,103 @@ func setFlagship(c *Config, isFlagship bool) {
 	})
 }
 
+// Values of the `required` tag.
+const (
+	requiredAlways   = "always"
+	requiredFlagship = "flagship"
+	requiredEscort   = "escort"
+)
+
+// setting is a single config field that can be set through an env var.
+type setting struct {
+	name     string
+	required string // empty when the setting is optional
+	value    reflect.Value
+}
+
+func (s setting) requiredFor(isFlagship bool) bool {
+	switch s.required {
+	case requiredAlways:
+		return true
+	case requiredFlagship:
+		return isFlagship
+	case requiredEscort:
+		return !isFlagship
+	}
+	return false
+}
+
+// settings lists every field of c that can be set through an env var.
+//
+// It returns an error if a `required` tag isn't one of the values above.
+func settings(c *Config) ([]setting, error) {
+	var list []setting
+	var errs []error
+	sections := reflect.ValueOf(c).Elem()
+	for i := range sections.NumField() {
+		sectionType := sections.Type().Field(i)
+		section := sections.Field(i)
+		if !sectionType.IsExported() || section.Kind() != reflect.Struct {
+			continue
+		}
+
+		for j := range section.NumField() {
+			field := section.Type().Field(j)
+			key, _, _ := strings.Cut(field.Tag.Get("koanf"), ",")
+			if key == "-" || !field.IsExported() {
+				continue
+			}
+			if key == "" {
+				key = field.Name
+			}
+
+			s := setting{name: envName(sectionType.Name + "." + key), value: section.Field(j)}
+			if tag, ok := field.Tag.Lookup("required"); ok {
+				switch tag {
+				case requiredAlways, requiredFlagship, requiredEscort:
+					s.required = tag
+				default:
+					errs = append(errs, fmt.Errorf("%s has unknown required tag %q", s.name, tag))
+					continue
+				}
+			}
+			list = append(list, s)
+		}
+	}
+	return list, errors.Join(errs...)
+}
+
+// checkRequired returns an error for every required setting of this role that has no value.
+func checkRequired(c *Config, isFlagship bool) error {
+	list, err := settings(c)
+	if err != nil {
+		return err
+	}
+
+	var errs []error
+	for _, s := range list {
+		if s.requiredFor(isFlagship) && isEmpty(s.value) {
+			errs = append(errs, fmt.Errorf("%s is required", s.name))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func isEmpty(v reflect.Value) bool {
+	if v.Kind() == reflect.String {
+		return strings.TrimSpace(v.String()) == ""
+	}
+	return v.IsZero()
+}
+
+func envName(key string) string {
+	return strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
+}
+
 func envNames(k *koanf.Koanf) (map[string]string, error) {
 	names := make(map[string]string)
 	for _, key := range k.Keys() {
-		name := strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
+		name := envName(key)
 		if other, ok := names[name]; ok {
 			return nil, fmt.Errorf("config keys '%q' and '%q' both map to %s", other, key, name)
 		}
