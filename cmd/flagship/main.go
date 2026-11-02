@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 
 	"github.com/rs/zerolog"
 
@@ -39,6 +40,14 @@ func main() {
 	if err != nil {
 		logger.Panic().Err(err).Msg("Failed to create geo locator")
 		return
+	}
+
+	if strings.TrimSpace(config.Haven.PublicAddress) == "" {
+		pubAddr, err := havenPkg.GetPublicIP(ctx)
+		if err != nil {
+			logger.Panic().Err(err).Msg("failed to get public IP address for escort, consider manually populating the `HAVEN_PUBLIC_ADDRESS` field")
+		}
+		config.Haven.PublicAddress = pubAddr.String()
 	}
 
 	haven, err := havenPkg.NewHaven(ctx, logger, config.Haven, locator, config.SRT.Passphrase, config.SRT.StreamID)

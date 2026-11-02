@@ -87,7 +87,7 @@ func (s *Server) Start() {
 	}
 	s.wg.Go(func() {
 		if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.logger.Error().Err(err).Msg("Dashboard server failed, ports below 1024 need root or CAP_NET_BIND_SERVICE")
+			s.logger.Error().Err(err).Msg("Dashboard server failed")
 		}
 	})
 	s.logger.Info().Str("address", s.config.Address).Int("port", s.config.Port).Msg("Dashboard server started")

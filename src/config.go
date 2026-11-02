@@ -4,11 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"reflect"
 	"slices"
 	"strings"
 
+	"github.com/knadh/koanf/parsers/dotenv"
 	"github.com/knadh/koanf/providers/env/v2"
+	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/providers/structs"
 	"github.com/knadh/koanf/v2"
 
@@ -21,10 +24,15 @@ import (
 	"github.com/OverlayFox/VRC-Haven/src/protocols/srt"
 )
 
+const envFile = ".env"
+
 // Config is the main point where all configs life
 //
 // It's handled by github.com/knadh/koanf/v2 which will turn fields into values structs like `SRT.Port`
 // ENV vars are converted to `SRT_PORT`.
+//
+// Values are read from the defaults, then from an optional `.env` file in the working directory, then from ENV vars.
+// A later source overrides an earlier one.
 type Config struct {
 	Log      logging.Config
 	Profiler profiling.Config
@@ -67,9 +75,19 @@ func LoadConfig(isFlagship bool) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = k.Load(env.Provider(".", env.Opt{
-		TransformFunc: func(name, value string) (string, any) { return names[name], value },
-	}), nil)
+	// A blank value counts as not set, so it doesn't overwrite the default.
+	toKey := func(name, value string) (string, any) {
+		if strings.TrimSpace(value) == "" {
+			return "", nil
+		}
+		return names[name], value
+	}
+
+	err = k.Load(file.Provider(envFile), dotenv.ParserEnvWithValue("", ".", toKey))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("load %s: %w", envFile, err)
+	}
+	err = k.Load(env.Provider(".", env.Opt{TransformFunc: toKey}), nil)
 	if err != nil {
 		return nil, err
 	}

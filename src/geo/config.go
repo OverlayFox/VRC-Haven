@@ -53,7 +53,7 @@ func checkDirAccess(dir string) error {
 }
 
 func (c *Config) SetDefaults() {
-	if c.Dir == "" {
-		c.Dir = defaultDBDir
+	*c = Config{
+		Dir: defaultDBDir,
 	}
 }
