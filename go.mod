@@ -7,7 +7,7 @@ require (
 	github.com/bluenviron/gortsplib/v5 v5.5.1
 	github.com/bluenviron/mediacommon/v2 v2.8.3
 	github.com/datarhei/gosrt v0.9.0
-	github.com/joho/godotenv v1.5.1
+	github.com/knadh/koanf/providers/env/v2 v2.0.2
 	github.com/knadh/koanf/providers/structs v1.0.1
 	github.com/knadh/koanf/v2 v2.4.1
 	github.com/oschwald/geoip2-golang v1.13.0
@@ -25,7 +25,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/knadh/koanf/maps v0.1.2 // indirect
-	github.com/knadh/koanf/providers/env/v2 v2.0.2 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
