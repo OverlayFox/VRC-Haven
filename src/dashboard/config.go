@@ -16,7 +16,7 @@ type Config struct {
 }
 
 func (c Config) Validate() error {
-	if c.Username == "" && c.Password != "" {
+	if c.Username == "" && c.Password == "" {
 		return nil // Dashboard is disabled
 	}
 	if c.Username == "" && c.Password != "" {

@@ -119,8 +119,8 @@ func TestDefaultConfig(t *testing.T) {
 	var config dashboard.Config
 	config.SetDefaults()
 
-	if config.Port != 8080 {
-		t.Errorf("default port = %d, want 8080", config.Port)
+	if config.Port != 8090 {
+		t.Errorf("default port = %d, want 8090", config.Port)
 	}
 	if err := config.Validate(); err != nil {
 		t.Errorf("default config is invalid: %v", err)
@@ -129,11 +129,15 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestValidatePort(t *testing.T) {
 	for _, port := range []int{-1, 65536} {
-		if err := (dashboard.Config{Port: port}).Validate(); err == nil {
+		if err := (dashboard.Config{
+			Port:     port,
+			Username: "admin",
+			Password: "secret",
+		}).Validate(); err == nil {
 			t.Errorf("expected error for port %d", port)
 		}
 	}
-	if _, err := dashboard.New(zerolog.Nop(), dashboard.Config{Port: 70000}); err == nil {
+	if err := (dashboard.Config{Port: 70000, Username: "admin", Password: "secret"}).Validate(); err == nil {
 		t.Error("New accepted port 70000")
 	}
 }
