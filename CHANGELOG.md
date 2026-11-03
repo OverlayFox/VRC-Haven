@@ -11,12 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - added `CodeQL Advanced` to create security reports automatically.
 - added Dependabot version updates for Go modules, GitHub Actions and Docker images.
+- added CodeQL, Go version and license badges to the README.
 
 ### Changed
 
 - changed config system to now use `koanf` and be able to set defaults, distinguish between flagship, escort and shared required variables and validate variables more easily.
 - updated `actions/checkout` and `actions/setup-go` to versions that run on Node.js 24.
 - the changelog check no longer runs on Dependabot PRs.
+- the README build badge now points to the `OverlayFox/VRC-Haven` repository.
 
 ## [alpha-0.0.1] - 2026-10-22
 

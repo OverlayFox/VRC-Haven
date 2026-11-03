@@ -5,7 +5,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/OverlayFox/VRC-Stream-Haven/actions/workflows/go.yml"><img src="https://github.com/OverlayFox/VRC-Stream-Haven/actions/workflows/go.yml/badge.svg" alt="Build Status"></a>
+  <a href="https://github.com/OverlayFox/VRC-Haven/actions/workflows/go.yml"><img src="https://github.com/OverlayFox/VRC-Haven/actions/workflows/go.yml/badge.svg" alt="Build Status"></a>
+  <a href="https://github.com/OverlayFox/VRC-Haven/actions/workflows/codeql.yml"><img src="https://github.com/OverlayFox/VRC-Haven/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
+  <img src="https://img.shields.io/github/go-mod/go-version/OverlayFox/VRC-Haven" alt="Go Version">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/OverlayFox/VRC-Haven" alt="License"></a>
 </p>
 
 ## Table of Contents
@@ -18,9 +21,6 @@
 - [Installation](#installation)
   - [Building](#building)
   - [MaxMind Database Setup](#maxmind-database-setup)
-- [Configuration](#configuration)
-  - [Ports](#ports)
-  - [Logging](#logging)
 - [Usage](#usage)
   - [Running the Flagship](#running-the-flagship)
   - [Running an Escort](#running-an-escort)
@@ -127,48 +127,6 @@ It is required for the flagship and free. Escorts don't need it.
 On startup the flagship downloads the database into `./GeoDatabase` if there is none or the one there is older than 7 days, and deletes older copies.
 
 > **Note**: The database is not included in the repository due to licensing restrictions.
-
-## Configuration
-
-Both binaries read their settings from environment variables, and from a `.env` file in the working directory if there is one. Copy [`.env.example`](.env.example) to get started.
-
-| Variable               | Used by  | Default                       | Meaning                                                                                                    |
-| ---------------------- | -------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `MAX_MIND_ACCOUNT_ID`  | Flagship | required                      | MaxMind account ID                                                                                         |
-| `MAX_MIND_LICENSE_KEY` | Flagship | required                      | MaxMind license key                                                                                        |
-| `FLAGSHIP_SRT_ADDR`    | Escort   | `127.0.0.1:8890`              | `host:port` of the flagship's SRT server                                                                   |
-| `HAVEN_PASSPHRASE`     | Both     | `thisisaverysecurepassphrase` | SRT encryption passphrase, 10 to 79 characters, escorts must use the flagship's                            |
-| `HAVEN_STREAM_ID`      | Both     | `test`                        | Stream ID, escorts must use the flagship's                                                                 |
-| `HLS_PORT`             | Escort   | `8555`                        | Port the escort serves HLS on                                                                              |
-| `HLS_PUBLIC_ADDR`      | Escort   | `:<HLS_PORT>`                 | `host:port` the flagship redirects viewers to, an empty host means the escort's IP as the flagship sees it |
-| `DASHBOARD_PORT`       | Both     | `8080`                        | Port of the [dashboard](#dashboard), ports below 1024 need root or `CAP_NET_BIND_SERVICE`                  |
-| `DASHBOARD_USER`       | Both     | empty                         | Basic auth user for the dashboard                                                                          |
-| `DASHBOARD_PASSWORD`   | Both     | empty                         | Basic auth password, the dashboard has no auth when this is empty                                          |
-| `LOG_LEVEL`            | Both     | `info`                        | See [Logging](#logging)                                                                                    |
-| `LOG_FORMAT`           | Both     | text                          | See [Logging](#logging)                                                                                    |
-| `PPROF_ADDR`           | Both     | off                           | Serves Go profiles for `go tool pprof` on this address, keep it off public interfaces                      |
-
-### Ports
-
-| Role     | Port | Protocol | Purpose                                |
-| -------- | ---- | -------- | -------------------------------------- |
-| Flagship | 8890 | UDP      | SRT, for the publisher and the escorts |
-| Flagship | 8554 | TCP      | HLS                                    |
-| Both     | 8080 | TCP      | Dashboard (`DASHBOARD_PORT`)           |
-| Escort   | 8555 | TCP      | HLS (`HLS_PORT`)                       |
-
-### Logging
-
-- `LOG_LEVEL`: `trace`, `debug`, `info` (default), `warn` or `error`
-- `LOG_FORMAT`: `json` writes one JSON object per line, anything else writes plain text (colored only on a terminal)
-
-Lines about one HLS player share `client_ip` and `viewer_id`. To follow one player through a log file:
-
-```bash
-grep "client_ip=203.0.113.7" haven.log            # every player behind that IP, the "New HLS viewer" line gives their viewer_id
-grep "viewer_id=1a2b3c4d" haven.log               # one player's session
-jq 'select(.viewer_id == "1a2b3c4d")' haven.log   # the same with LOG_FORMAT=json
-```
 
 ## Usage
 
