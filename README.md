@@ -219,8 +219,6 @@ Open `http://127.0.0.1:8090` on that machine, or get the same data as JSON at `/
 
 ## Deploying Escorts to Linode
 
-> ⚠️ The escort settings template, [`haven.env.j2`](scripts/ansible/templates/haven.env.j2), still uses the old setting names. Escorts deployed this way won't start until it is updated.
-
 [`scripts/ansible`](scripts/ansible) creates escorts on Linode for a flagship you already run. You get one escort per region, each on a 2GB shared CPU instance, and every escort connects to your flagship.
 
 1. Install the tools into a virtualenv on your machine. You also need Go installed.
@@ -232,14 +230,16 @@ Open `http://127.0.0.1:8090` on that machine, or get the same data as JSON at `/
    ansible-galaxy collection install -r requirements.yml
    ```
    In a new shell, run `source .venv/bin/activate` again before the playbooks.
-2. Copy `credentials/example.yml` to `credentials/<linode username>.yml` and fill in the flagship's passphrase and a Linode API token with **Linodes: Read/Write** and **Events: Read Only**. Then encrypt it with `ansible-vault encrypt`.
+2. Copy `credentials/example.yml` to `credentials/<linode username>.yml` and fill in a Linode API token with **Linodes: Read/Write** and **Events: Read Only**, and the flagship's `SRT_PASSPHRASE` as `srt_passphrase`. Then encrypt it with `ansible-vault encrypt`.
    Root on the instances gets your local `~/.ssh/id_ed25519.pub`, pass `-e ssh_public_key_file=<path>` for another key.
 3. Deploy, giving the regions and the flagship's details:
    ```bash
    ansible-playbook deploy.yml --ask-vault-pass -e linode_user=<linode username> \
      -e escort_regions=au-mel,eu-central \
-     -e flagship_ip=<flagship ip> -e flagship_port=8890 -e flagship_application=<flagship's SRT_STREAM_ID>
+     -e haven_flagship_address=<flagship ip> -e srt_stream_id=<flagship's SRT_STREAM_ID>
    ```
+
+The escort settings use the names from [`.env.example`](.env.example) in lower case, so `-e haven_flagship_port=9000` sets `HAVEN_FLAGSHIP_PORT`. Escorts serve viewers on port 8080, like the Docker setup.
 
 To remove every escort, run `ansible-playbook destroy.yml --ask-vault-pass -e linode_user=<linode username>`.
 For more options, see [`scripts/ansible/README.md`](scripts/ansible/README.md).

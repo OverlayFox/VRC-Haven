@@ -1,4 +1,7 @@
 # Defaults, override any of these with -e or -e @haven.yml
+#
+# Variables that end up in the escort's settings are named after the setting in .env.example, in lower case.
+# For example srt_stream_id becomes SRT_STREAM_ID.
 
 # Public key installed for root on every instance, its private key is what Ansible connects with
 ssh_public_key_file: ~/.ssh/id_ed25519.pub
@@ -15,19 +18,30 @@ linode_image: linode/ubuntu24.04
 escort_regions: [us-central, eu-central, gb-lon, it-mil]
 
 # The flagship the escorts pull from, it is not deployed by these playbooks
-# flagship_ip: 203.0.113.7
-flagship_port: 8890
-# flagship_passphrase: belongs in the credentials file
-# flagship_application: the stream ID the flagship serves
+# haven_flagship_address: 203.0.113.7
+haven_flagship_port: 8890
+# srt_passphrase: belongs in the credentials file, must match the flagship's SRT_PASSPHRASE
+# Must match the flagship's SRT_STREAM_ID
+srt_stream_id: ingest
 
-haven_log_level: info
-haven_log_format: json
-haven_dashboard_port: 8080
-# Go ignores the cgroup and instance memory, keep the GC working below the 2GB of the instance
-haven_gomemlimit: 1536MiB
+log_level: info
+log_format: json
 
 # Port the escorts serve HLS on, the flagship redirects viewers to it
-haven_hls_port: 8554
+hls_port: 8080
+
+# The dashboard only runs when dashboard_username and dashboard_password are set in the credentials file,
+# and its port is only opened in the firewall then
+dashboard_address: 0.0.0.0
+dashboard_port: 8090
+
+# Any other setting from .env.example, for example:
+# haven_extra_env:
+#   HLS_WRITE_TIMEOUT: 20s
+haven_extra_env: {}
+
+# Go ignores the cgroup and instance memory, keep the GC working below the 2GB of the instance
+haven_gomemlimit: 1536MiB
 
 haven_install_dir: /opt/vrc-haven
 haven_config_dir: /etc/vrc-haven
