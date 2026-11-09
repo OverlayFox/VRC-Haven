@@ -91,7 +91,7 @@ _\*The escorts and flagship are run on servers you own, this project does not pr
 This section shows the current status of support for different players and player engines that are used in VRChat. <br>
 [VRChat Player Documentation](https://creators.vrchat.com/worlds/udon/video-players/)
 
-✅ Fully supported | 🟡 Partially Supported | 🚫 Not supported | ⚪ Not yet tested but should work
+✅ Fully supported | 🟡 Partially Supported | 🚫 Not supported | ❔ Not yet tested but should work
 
 ### Video Playback Engines:
 
@@ -100,18 +100,18 @@ This section shows the current status of support for different players and playe
 
 - ⚪ [AV-Pro](https://www.renderheads.com/content/docs/AVProVideo-v3/)
   - AV-Pro uses the Windows Media Foundation to playback the videos
-- 🚫 Unity Video Player
+- ❔ Unity Video Player
   - Not officially supported for [livestreams by VRChat](https://creators.vrchat.com/worlds/udon/video-players/#choosing-avpro-or-unity-video-player), but should play in practice
 
 ### Video Players:
 
 - 🟡 [ProTV](https://gitlab.com/techanon/protv)
   - Issue with a resync that can happen every 10 minutes which gets viewers stuck until they manually resync, tracked in [Ticket-#21](https://gitlab.com/techanon/protv/-/work_items/21)
-- ⚪ [VideoTXL](https://github.com/vrctxl/VideoTXL)
-- ⚪ [USharpVideo](https://github.com/MerlinVR/USharpVideo)
-- ⚪ [VizVid](https://github.com/JLChnToZ/VVMW)
-- ⚪ [RiskiPlayer](https://github.com/RiskiVR/RiskiPlayer?utm_source=chatgpt.com)
-- ⚪ [YamaPlayer](https://github.com/koorimizuw/YamaPlayer)
+- ❔ [VideoTXL](https://github.com/vrctxl/VideoTXL)
+- ❔ [USharpVideo](https://github.com/MerlinVR/USharpVideo)
+- ❔ [VizVid](https://github.com/JLChnToZ/VVMW)
+- ❔ [RiskiPlayer](https://github.com/RiskiVR/RiskiPlayer?utm_source=chatgpt.com)
+- ❔ [YamaPlayer](https://github.com/koorimizuw/YamaPlayer)
 
 ## Getting Started
 
