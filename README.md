@@ -285,7 +285,7 @@ You can read a more detailed overview in the [AI Disclosure document](AI_DISCLOS
 
 ## License
 
-VRC-Haven is free software under the [MIT License](LICENSE.md). It is provided as is, without warranty of any kind.
+VRC-Haven is free software under the [MIT License](LICENSE). It is provided as is, without warranty of any kind.
 Nothing in this README or the license limits liability that cannot be limited under applicable law.
 
 VRC-Haven is built on open-source Go libraries listed in [`go.mod`](go.mod). Each one is covered by its own license.
