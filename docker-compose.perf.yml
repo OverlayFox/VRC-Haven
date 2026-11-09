@@ -1,0 +1,19 @@
+# Resource limits and profiling for `make performance-test`, layered on top of docker-compose.yml
+
+services:
+  flagship:
+    cpus: ${HAVEN_CPUS:-1.0}
+    mem_limit: ${HAVEN_MEM:-256m}
+    memswap_limit: ${HAVEN_MEM:-256m}
+    environment:
+      SRT_STREAM_ID: ${SRT_STREAM_ID:?set SRT_STREAM_ID in .env}
+      SRT_PASSPHRASE: ${SRT_PASSPHRASE:?set SRT_PASSPHRASE in .env}
+      GEO_ACCOUNT_ID: ${GEO_ACCOUNT_ID:?set GEO_ACCOUNT_ID in .env}
+      GEO_LICENSE_KEY: ${GEO_LICENSE_KEY:?set GEO_LICENSE_KEY in .env}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      GOMEMLIMIT: ${HAVEN_GOMEMLIMIT:-}
+      PROFILER_ADDRESS: 0.0.0.0
+      PROFILER_PORT: 6060
+    ports:
+      - "127.0.0.1:6060:6060/tcp" # pprof, host only
+    restart: "no"

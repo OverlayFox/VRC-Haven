@@ -38,7 +38,8 @@ func (c *Config) Validate() error {
 
 func (c *Config) SetDefaults() {
 	*c = Config{
-		Port:    8890,
-		Address: "127.0.0.1",
+		Port:     8890,
+		Address:  "0.0.0.0",
+		StreamID: "ingest",
 	}
 }

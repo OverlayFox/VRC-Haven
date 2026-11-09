@@ -38,7 +38,7 @@ install-dev:
 
 .PHONY: performance-test
 performance-test:
-	HAVEN_CPUS=1 HAVEN_MEM=1GB docker compose up --build
+	HAVEN_CPUS=1 HAVEN_MEM=1GB docker compose -f docker-compose.yml -f docker-compose.perf.yml up --build flagship
 
 .PHONY: performance-graph
 performance-graph:

@@ -34,6 +34,6 @@ func (c Config) Validate() error {
 func (c *Config) SetDefaults() {
 	*c = Config{
 		Port:    8090,
-		Address: "127.0.0.1",
+		Address: "0.0.0.0",
 	}
 }
