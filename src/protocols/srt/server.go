@@ -14,9 +14,8 @@ import (
 )
 
 const (
-	initialBackoff    = 100 * time.Millisecond
-	maxBackoff        = 10 * time.Second
-	defaultSRTLatency = 2 * time.Second
+	initialBackoff = 100 * time.Millisecond
+	maxBackoff     = 10 * time.Second
 
 	// rttProbeDuration is how long a new connection exchanges ACKs before its RTT is trusted.
 	// gosrt sends a full ACK every 10ms and starts its RTT estimate at 100ms, after 1s of samples that start value is gone.
@@ -96,7 +95,6 @@ func (s *server) Start() {
 			case req := <-acceptCh:
 				connectionLogger := s.logger.With().Str("remote_addr", req.RemoteAddr().String()).Str("stream_id", req.StreamId()).Logger()
 				connectionLogger.Info().Msg("Accepted new SRT connection")
-
 				go func() {
 					conn, err := NewConnectionFromRequest(s.ctx, connectionLogger, s.haven, s.locator, req)
 					if err != nil {
@@ -139,10 +137,10 @@ func (s *server) Dial(address string, streamID, passphrase string) error {
 	}
 
 	wanted, negotiated := latencyFromRTT(conn)
-	if wanted > negotiated || negotiated < defaultSRTLatency {
-		s.logger.Info().Dur("negotiated", negotiated).Dur("wanted", max(wanted, defaultSRTLatency)).Msg("RTT needs a higher SRT latency, reconnecting")
+	if wanted > negotiated {
+		s.logger.Info().Dur("negotiated", negotiated).Dur("wanted", wanted).Msg("RTT needs a higher SRT latency, reconnecting")
 		_ = conn.Close()
-		config.Latency = max(wanted, defaultSRTLatency)
+		config.Latency = max(wanted, minSRTLatency)
 		if conn, err = s.dialFlagship(address, config); err != nil {
 			return err
 		}
