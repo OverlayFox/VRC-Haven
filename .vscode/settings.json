@@ -19,10 +19,11 @@
   "go.coverageOptions": "showCoveredCodeOnly",
   "go.coverOnSave": false,
   "cSpell.words": [
-    "nalu", // Network Abstraction Layer Units
+    "gortsplib",
+    "nalu",
     "nalus",
+    "playbackability",
     "RTSP",
-    "SRT",
-    "gortsplib"
+    "SRT"
   ]
 }
