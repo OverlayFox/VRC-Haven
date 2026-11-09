@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- implemented default SRT latency for calling clients
+- implemented minimum SRT latency for calling clients
 - added `CodeQL Advanced` to create security reports automatically.
 - added Dependabot version updates for Go modules, GitHub Actions and Docker images.
 - added CodeQL, Go version and license badges to the README.
