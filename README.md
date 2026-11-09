@@ -38,7 +38,6 @@ _\*The escorts and flagship are run on servers you own, this project does not pr
 
 - you run streams or events in VRChat with viewers in different countries
 - you want to run the servers yourself
-- you are planning on streaming content VRCDN forbids but is legal in your country
 - want an OpenSource, not tracked and no ads option that you 100% own
 
 **Probably not yet if:**
