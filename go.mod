@@ -3,7 +3,7 @@ module github.com/OverlayFox/VRC-Haven
 go 1.27.0
 
 require (
-	github.com/asticode/go-astits v1.16.0
+	github.com/asticode/go-astits v1.17.0
 	github.com/bluenviron/mediacommon/v2 v2.9.7
 	github.com/datarhei/gosrt v0.13.0
 	github.com/knadh/koanf/parsers/dotenv v1.1.3
