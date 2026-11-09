@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - updated `actions/checkout` and `actions/setup-go` to versions that run on Node.js 24.
 - the changelog check no longer runs on Dependabot PRs.
 - the README build badge now points to the `OverlayFox/VRC-Haven` repository.
-- reworked the README
+- updated the README
 - `docker-compose.yml` now runs a flagship with `docker compose up -d` or an escort with `docker compose up -d escort`, with all settings written directly in the file instead of a `.env`, and the README setup is now Docker-first.
 - moved the resource limits and pprof settings for `make performance-test` into `docker-compose.perf.yml`.
 
