@@ -21,6 +21,11 @@ test:
 	@echo "==> Running tests with race detector..."
 	go test -race -v ./...
 
+.PHONY: e2e
+e2e:
+	@echo "==> Running end-to-end HLS tests..."
+	go test -race -tags e2e -count=1 -v ./src/e2e/...
+
 .PHONY: lint
 .PHONY: lint
 lint:

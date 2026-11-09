@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - added Dependabot version updates for Go modules, GitHub Actions and Docker images.
 - added CodeQL, Go version and license badges to the README.
 - added AI_DISCLOSURE to README and as a file
+- added end-to-end tests (`make e2e`, build tag `e2e`) that publish a pre-encoded test clip over SRT and check the HLS output against what Windows Media Foundation, the backend of VRChat's AV-Pro player on PC, needs.
+- added a Windows CI job that plays the HLS stream through Windows Media Foundation with a small .NET test player in `test/mfplayer`.
 
 ### Changed
 

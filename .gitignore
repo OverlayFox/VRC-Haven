@@ -34,3 +34,6 @@ go.work.sum
 logs/
 geoDatabases/
 .pprof/
+# .NET build output of test/mfplayer
+test/mfplayer/bin/
+test/mfplayer/obj/

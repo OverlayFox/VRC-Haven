@@ -93,7 +93,9 @@ _\*The escorts and flagship are run on servers you own, this project does not pr
 ### Video Playback Engines:
 
 - ⚪ [AV-Pro](https://www.renderheads.com/content/docs/AVProVideo-v3/)
-- ⚪ Unity Video Player
+  - CI plays the stream through Windows Media Foundation, the backend AV-Pro uses in VRChat on PC (`make e2e`, see `src/e2e`)
+- 🚫 Unity Video Player
+  - VRChat's Unity Video Player does not play livestreams, use a player with AV-Pro instead
 
 ### Video Players:
 
