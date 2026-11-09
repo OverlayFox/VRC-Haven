@@ -36,21 +36,27 @@ Root on every instance gets your local SSH public key, `~/.ssh/id_ed25519.pub` b
 ansible-playbook deploy.yml --ask-vault-pass \
   -e linode_user=<linode username> \
   -e escort_regions=au-mel,eu-central \
-  -e flagship_ip=203.0.113.7 \
-  -e flagship_port=8890 \
-  -e flagship_application=<stream id>
+  -e haven_flagship_address=203.0.113.7 \
+  -e srt_stream_id=<the flagship's SRT_STREAM_ID>
 ```
 
-| Variable               | Meaning                                                        |
-| ---------------------- | -------------------------------------------------------------- |
-| `escort_regions`       | Linode region IDs, one escort each (`linode-cli regions list`) |
-| `flagship_ip`          | Public IP or hostname of the flagship                          |
-| `flagship_port`        | The flagship's SRT port, defaults to 8890                      |
-| `flagship_passphrase`  | The flagship's `HAVEN_PASSPHRASE`, from the credentials file   |
-| `flagship_application` | The flagship's `HAVEN_STREAM_ID`                               |
+Variables that end up in the escort's settings have the same name as in [`.env.example`](../../.env.example), in lower case.
+
+| Variable                 | Setting on the escort    | Meaning                                                            |
+| ------------------------ | ------------------------ | ------------------------------------------------------------------ |
+| `escort_regions`         |                          | Linode region IDs, one escort each (`linode-cli regions list`)     |
+| `haven_flagship_address` | `HAVEN_FLAGSHIP_ADDRESS` | Public IP or hostname of the flagship                              |
+| `haven_flagship_port`    | `HAVEN_FLAGSHIP_PORT`    | The flagship's SRT port, defaults to 8890                          |
+| `srt_passphrase`         | `SRT_PASSPHRASE`         | The flagship's `SRT_PASSPHRASE`, from the credentials file         |
+| `srt_stream_id`          | `SRT_STREAM_ID`          | The flagship's `SRT_STREAM_ID`, defaults to `ingest`               |
+| `dashboard_username`     | `DASHBOARD_USERNAME`     | From the credentials file, the dashboard is off while it's empty   |
+| `dashboard_password`     | `DASHBOARD_PASSWORD`     | From the credentials file                                          |
+| `hls_port`               | `HLS_PORT`               | Port viewers watch on, defaults to 8080                            |
+| `dashboard_port`         | `DASHBOARD_PORT`         | Defaults to 8090                                                   |
+| `haven_extra_env`        | anything                 | Any other setting from `.env.example`, as a map                    |
 
 Labels are `<haven_name>-escort-<region>`, so you can have at most one escort per region. Pass `-e haven_name=<name>` to run escorts for more than one flagship on the same account.
-Escorts serve HLS on port 8554. The dashboard on 8080 is only opened in the firewall when `dashboard_password` is set. The other defaults are in `group_vars/all.yml`.
+ufw opens SSH and the HLS port. The dashboard port is only opened when `dashboard_password` is set, otherwise reach it with `ssh -L 8090:localhost:8090 root@<instance ip>`. The other defaults are in `group_vars/all.yml`.
 
 Re-running the playbook is safe. It ships a new binary and config and restarts only the escorts whose files changed. A region you add gets a new escort. A region you remove keeps its escort running.
 

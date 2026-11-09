@@ -1,7 +1,7 @@
 # Deploys escorts on Linode, one Linode 2GB per region, all pulling from an existing flagship.
 #
 #   ansible-playbook deploy.yml --ask-vault-pass -e linode_user=<linode username> \
-#     -e escort_regions=au-mel,eu-central -e flagship_ip=203.0.113.7 -e flagship_application=<stream id>
+#     -e escort_regions=au-mel,eu-central -e haven_flagship_address=203.0.113.7 -e srt_stream_id=<stream id>
 #
 # Running it again with the same regions only updates the binary and config, new regions add instances.
 # Instances of removed regions are left running, destroy.yml removes the whole haven.
@@ -23,14 +23,16 @@
           - linode_token | default('') | length > 0
           - escort_region_list | length > 0
           - escort_region_list | length == escort_region_list | unique | length
-          - flagship_ip | default('') | length > 0
-          - flagship_port | int > 0
+          - haven_flagship_address | default('') | length > 0
+          - haven_flagship_port | int > 0
           # The app's limits: SRT takes 10 to 79 characters and both end up in the HLS path
-          - flagship_passphrase | default('') is match('^[A-Za-z0-9._~$&+,;=:@-]{10,79}$')
-          - flagship_application | default('') is match('^[A-Za-z0-9._~-]+$')
+          - srt_passphrase | default('') is match('^[A-Za-z0-9._~$&+,;=:@-]{10,79}$')
+          - srt_stream_id | default('') is match('^[A-Za-z0-9._~-]+$')
+          - (dashboard_username | default('') | length > 0) == (dashboard_password | default('') | length > 0)
         fail_msg: >-
-          Needs -e linode_user, unique escort_regions, flagship_ip, flagship_application (letters, digits, . _ ~ -),
-          linode_token in credentials/{{ linode_user }}.yml and a URL safe flagship_passphrase of 10 to 79 characters
+          Needs -e linode_user, unique escort_regions, haven_flagship_address, srt_stream_id (letters, digits, . _ ~ -),
+          linode_token in credentials/{{ linode_user }}.yml, a URL safe srt_passphrase of 10 to 79 characters,
+          and either both or neither of dashboard_username and dashboard_password
         quiet: true
 
     - name: Build the escort binary
@@ -147,14 +149,14 @@
     - name: Allow HLS
       community.general.ufw:
         rule: allow
-        port: "{{ haven_hls_port | string }}"
+        port: "{{ hls_port | string }}"
         proto: tcp
         comment: HLS
 
     - name: Allow the dashboard only when it has a password
       community.general.ufw:
         rule: allow
-        port: "{{ haven_dashboard_port | string }}"
+        port: "{{ dashboard_port | string }}"
         proto: tcp
         comment: dashboard
         delete: "{{ dashboard_password | default('') | length == 0 }}"
@@ -179,5 +181,5 @@
   tasks:
     - name: Show the escorts
       ansible.builtin.debug:
-        msg: "{{ item }}: {{ hostvars[item].ansible_host }}, pulling from {{ flagship_ip }}:{{ flagship_port }}"
+        msg: "{{ item }}: {{ hostvars[item].ansible_host }}, pulling from {{ haven_flagship_address }}:{{ haven_flagship_port }}"
       loop: "{{ groups['escort'] }}"
