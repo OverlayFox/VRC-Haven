@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/OverlayFox/VRC-Haven/src"
+	"github.com/OverlayFox/VRC-Haven/src/protocols/hls"
 )
 
 const validEnvFile = `# comments and blank lines are ignored
@@ -73,11 +74,13 @@ func TestLoadConfigBlankValueKeepsDefault(t *testing.T) {
 	if config.Haven.FlagshipPort != 8890 {
 		t.Errorf("flagship port = %d", config.Haven.FlagshipPort)
 	}
-	if config.HLS.Address != "127.0.0.1" {
-		t.Errorf("HLS address = %q", config.HLS.Address)
+	var hlsDefaults hls.Config
+	hlsDefaults.SetDefaults()
+	if config.HLS.Address != hlsDefaults.Address {
+		t.Errorf("HLS address = %q, want default %q", config.HLS.Address, hlsDefaults.Address)
 	}
-	if config.HLS.Port != 8080 {
-		t.Errorf("HLS port = %d", config.HLS.Port)
+	if config.HLS.Port != hlsDefaults.Port {
+		t.Errorf("HLS port = %d, want default %d", config.HLS.Port, hlsDefaults.Port)
 	}
 }
 
