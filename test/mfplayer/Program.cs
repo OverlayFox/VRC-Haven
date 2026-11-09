@@ -70,7 +70,8 @@ internal static class Program
 
             if (DateTime.UtcNow >= nextReport)
             {
-                Log($"state={state} position={position} played={played.TotalSeconds:F1}s video={session.NaturalVideoWidth}x{session.NaturalVideoHeight} frames={decoded} buffering={session.BufferingProgress:P0}");
+                // BufferingProgress is not read: the HLS source does not implement it and the getter throws InvalidCastException
+                Log($"state={state} position={position} played={played.TotalSeconds:F1}s video={session.NaturalVideoWidth}x{session.NaturalVideoHeight} frames={decoded}");
                 nextReport = DateTime.UtcNow.AddSeconds(2);
             }
 
