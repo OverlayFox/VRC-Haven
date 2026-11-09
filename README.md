@@ -7,6 +7,7 @@
 <p align="center">
   <a href="https://github.com/OverlayFox/VRC-Haven/actions/workflows/go.yml"><img src="https://github.com/OverlayFox/VRC-Haven/actions/workflows/go.yml/badge.svg" alt="Build Status"></a>
   <a href="https://github.com/OverlayFox/VRC-Haven/actions/workflows/codeql.yml"><img src="https://github.com/OverlayFox/VRC-Haven/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
+  <a href="https://github.com/OverlayFox/VRC-Haven/actions/workflows/e2e.yml"><img src="https://github.com/OverlayFox/VRC-Haven/actions/workflows/e2e.yml/badge.svg?branch=main" alt="e2e Player Tests"></a>
   <img src="https://img.shields.io/github/go-mod/go-version/OverlayFox/VRC-Haven" alt="Go Version">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/OverlayFox/VRC-Haven" alt="License"></a>
 </p>
@@ -87,13 +88,20 @@ _\*The escorts and flagship are run on servers you own, this project does not pr
 
 ## Supported Players:
 
-[VR-Chat Video Player Documentation](https://creators.vrchat.com/worlds/udon/video-players/?utm_source=chatgpt.com) <br>
+This section shows the current status of support for different players and player engines that are used in VRChat. <br>
+[VRChat Player Documentation](https://creators.vrchat.com/worlds/udon/video-players/)
+
 ✅ Fully supported | 🟡 Partially Supported | 🚫 Not supported | ⚪ Not yet tested but should work
 
 ### Video Playback Engines:
 
+- [![e2e Player Tests](https://github.com/OverlayFox/VRC-Haven/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/OverlayFox/VRC-Haven/actions/workflows/e2e.yml)
+  - Tests the HLS compliance and validates playback via Windows Media Foundation, which is the engine that VRChat uses on Windows
+
 - ⚪ [AV-Pro](https://www.renderheads.com/content/docs/AVProVideo-v3/)
-- ⚪ Unity Video Player
+  - AV-Pro uses the Windows Media Foundation to playback the videos
+- 🚫 Unity Video Player
+  - Not officially supported for [livestreams by VRChat](https://creators.vrchat.com/worlds/udon/video-players/#choosing-avpro-or-unity-video-player), but should play in practice
 
 ### Video Players:
 
