@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docker-compose.yml` now runs a flagship with `docker compose up -d` or an escort with `docker compose up -d escort`, with all settings written directly in the file instead of a `.env`, and the README setup is now Docker-first.
 - moved the resource limits and pprof settings for `make performance-test` into `docker-compose.perf.yml`.
 
+### Removed
+
+- removed untruthful line from ReadMe
+
 ## [alpha-0.0.1] - 2026-10-22
 
 ### Added
