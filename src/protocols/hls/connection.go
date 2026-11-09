@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bluenviron/gortsplib/v5"
 	"github.com/bluenviron/mediacommon/v2/pkg/codecs/mpeg4audio"
 	"github.com/rs/zerolog"
 	"github.com/yapingcat/gomedia/go-codec"
@@ -45,10 +44,6 @@ func NewConnection(upstreamCtx context.Context, logger zerolog.Logger, location 
 		ctx:           ctx,
 		cancel:        cancel,
 	}
-}
-
-func (c *Connection) GetStream() *gortsplib.ServerStream {
-	return nil
 }
 
 // HandleHTTP serves the stream this connection feeds.
