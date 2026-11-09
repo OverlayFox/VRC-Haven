@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - removed untruthful line from ReadMe
+- removed unnecessary rtsp package which was left over from alpha testing
 
 ## [alpha-0.0.1] - 2026-10-22
 

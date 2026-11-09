@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/bluenviron/gortsplib/v5"
 	"github.com/datarhei/gosrt/packet"
 	"github.com/rs/zerolog"
 )
@@ -80,7 +79,6 @@ type ConnectionSRT interface {
 type ConnectionRTSP interface {
 	Connection
 	Write(stream []BufferOutput) error
-	GetStream() *gortsplib.ServerStream
 	StartPlay() error
 	HandleHTTP(w http.ResponseWriter, r *http.Request)
 }
