@@ -47,38 +47,15 @@ _\*The escorts and flagship are run on servers you own, this project does not pr
 
 > ⚠️ **Early Development Notice**: This project is in the alpha stage. Expect bugs and missing features.
 
-### Supported Players:
-
-[VR-Chat Video Player Documentation](https://creators.vrchat.com/worlds/udon/video-players/?utm_source=chatgpt.com) <br>
-✅ Fully supported | 🟡 Partially Supported | 🚫 Not supported | ⚪ Not yet tested
-
-> **Untested does not necessarily mean unsupported.** <br>
-> Compatibility depends on both the video player and its underlying playback engine.
-
-### Video Playback Engines:
-
-- ⚪ [AV-Pro](https://www.renderheads.com/content/docs/AVProVideo-v3/)
-- ⚪ Unity Video Player
-
-### Video Players:
-
-- 🟡 [ProTV](https://gitlab.com/techanon/protv)
-  - Issue with a resync that can happen every 10 minutes which gets viewers stuck until they manually resync, tracked in [Ticket-#21](https://gitlab.com/techanon/protv/-/work_items/21)
-- ⚪ [VideoTXL](https://github.com/vrctxl/VideoTXL)
-- ⚪ [USharpVideo](https://github.com/MerlinVR/USharpVideo)
-- ⚪ [VizVid](https://github.com/JLChnToZ/VVMW)
-- ⚪ [RiskiPlayer](https://github.com/RiskiVR/RiskiPlayer?utm_source=chatgpt.com)
-- ⚪ [YamaPlayer](https://github.com/koorimizuw/YamaPlayer)
-
 ## Table of Contents
 
 - [What is VRC-Haven?](#what-is-vrc-haven)
 - [Is it right for me?](#is-it-right-for-me)
-  - [Supported Players:](#supported-players)
-  - [Video Playback Engines:](#video-playback-engines)
-  - [Video Players:](#video-players)
 - [Table of Contents](#table-of-contents)
 - [Features](#features)
+- [Supported Players:](#supported-players)
+  - [Video Playback Engines:](#video-playback-engines)
+  - [Video Players:](#video-players)
 - [Getting Started](#getting-started)
   - [What you need](#what-you-need)
   - [1. Get a free MaxMind license key](#1-get-a-free-maxmind-license-key)
@@ -108,6 +85,26 @@ _\*The escorts and flagship are run on servers you own, this project does not pr
 - **Web dashboard**: Shows the publisher, escorts, redirects and viewers, with a JSON API
 - **Lightweight**: One small program per server role which uses very little RAM and CPU
 - **Self-hosted**: You keep full control over your streaming servers
+
+## Supported Players:
+
+[VR-Chat Video Player Documentation](https://creators.vrchat.com/worlds/udon/video-players/?utm_source=chatgpt.com) <br>
+✅ Fully supported | 🟡 Partially Supported | 🚫 Not supported | ⚪ Not yet tested but should work
+
+### Video Playback Engines:
+
+- ⚪ [AV-Pro](https://www.renderheads.com/content/docs/AVProVideo-v3/)
+- ⚪ Unity Video Player
+
+### Video Players:
+
+- 🟡 [ProTV](https://gitlab.com/techanon/protv)
+  - Issue with a resync that can happen every 10 minutes which gets viewers stuck until they manually resync, tracked in [Ticket-#21](https://gitlab.com/techanon/protv/-/work_items/21)
+- ⚪ [VideoTXL](https://github.com/vrctxl/VideoTXL)
+- ⚪ [USharpVideo](https://github.com/MerlinVR/USharpVideo)
+- ⚪ [VizVid](https://github.com/JLChnToZ/VVMW)
+- ⚪ [RiskiPlayer](https://github.com/RiskiVR/RiskiPlayer?utm_source=chatgpt.com)
+- ⚪ [YamaPlayer](https://github.com/koorimizuw/YamaPlayer)
 
 ## Getting Started
 
