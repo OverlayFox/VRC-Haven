@@ -35,7 +35,7 @@ jobs:
         with:
           go-version: "1.27"
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
       - name: Install Media Foundation
